@@ -1,0 +1,30 @@
+# Short-form Video Generation Harness — 의존성
+# Python 3.11+ 필수
+# 설치: uv pip install -r requirements.txt
+
+# Google AI SDK (Gemini, Imagen, Veo, TTS)
+google-generativeai>=0.8.0
+
+# 영상 합성 엔진
+moviepy>=1.0.3
+
+# 오디오 분석 (LUFS, 음악 타이밍)
+librosa>=0.10.0
+
+# JSON 스키마 검증 (style_profile.schema.json)
+jsonschema>=4.21.0
+
+# 속성 기반 테스트
+hypothesis>=6.100.0
+
+# 테스트 프레임워크
+pytest>=8.0.0
+
+# 환경 변수 로딩 (.env 파일)
+python-dotenv>=1.0.0
+
+# 이미지 처리 (폴백 이미지 생성 등)
+Pillow>=10.0.0
+
+# 수치 연산 (오디오 분석, 페이싱 계산)
+numpy>=1.26.0

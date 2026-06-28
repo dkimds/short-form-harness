@@ -1,3 +1,5 @@
+refs/*.mp4
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
@@ -216,3 +218,14 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+/.kiro
+
+# ── Short-form Harness 프로젝트 전용 ──────────────────────────
+# 시크릿 — 절대 커밋 금지
+.env
+
+# 생성 산출물 (대용량, 재현 가능하므로 제외)
+outputs/
+
+# uv 가상환경 (.venv 는 위 Environments 섹션에도 있으나 명시적으로 재확인)
+.venv/

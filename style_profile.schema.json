@@ -1,0 +1,108 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ShortformStyleProfile",
+  "description": "레퍼런스 영상에서 추출한 재사용 가능한 스타일 명세. 분석 단계의 산출물이며 생성 단계의 유일한 입력 계약(contract)이다.",
+  "type": "object",
+  "required": ["meta", "format", "pacing", "captions", "audio", "overlay", "narrative", "visual"],
+  "properties": {
+    "meta": {
+      "type": "object",
+      "properties": {
+        "profile_id": { "type": "string" },
+        "source_refs": { "type": "array", "items": { "type": "string" } },
+        "extracted_by": { "type": "string", "description": "분석에 쓴 모델명/버전" },
+        "genre": { "type": "string", "example": "beauty_skincare_ugc_ad" }
+      }
+    },
+    "format": {
+      "type": "object",
+      "properties": {
+        "aspect_ratio": { "type": "string", "example": "9:16" },
+        "resolution": { "type": "string", "example": "576x1024" },
+        "fps": { "type": "integer", "example": 30 },
+        "duration_sec_range": { "type": "array", "items": { "type": "number" }, "example": [10, 15] }
+      }
+    },
+    "pacing": {
+      "type": "object",
+      "description": "컷 리듬. 레퍼런스마다 다르므로 분포로 표현하고 생성 시 샘플링한다.",
+      "properties": {
+        "cut_count_range": { "type": "array", "items": { "type": "integer" }, "example": [4, 12] },
+        "avg_shot_len_sec": { "type": "number", "example": 1.5 },
+        "shot_len_distribution_sec": { "type": "array", "items": { "type": "number" } },
+        "rhythm_mode": { "type": "string", "enum": ["fast_montage", "slow_hold", "mixed"] },
+        "hook_cut_density": { "type": "string", "description": "초반 3초 컷 밀도", "example": "high" }
+      }
+    },
+    "narrative": {
+      "type": "object",
+      "description": "장면 구성 순서(beat sheet). 생성 단계가 따라야 할 골격.",
+      "properties": {
+        "beats": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "role": { "type": "string", "enum": ["hook", "product_hero", "application", "result_glow", "cta_card"] },
+              "start_sec": { "type": "number" },
+              "end_sec": { "type": "number" },
+              "shot_type": { "type": "string", "example": "extreme_closeup_handheld_selfie" },
+              "intent": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "captions": {
+      "type": "object",
+      "description": "자막 시스템 = 슬롯 기반 템플릿. 텍스트 내용이 아니라 위치/타이밍/스타일을 규정.",
+      "properties": {
+        "slots": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string", "enum": ["title_hook", "subtitle_product", "rolling_caption"] },
+              "anchor": { "type": "string", "enum": ["top_center", "bottom_center", "lower_third"] },
+              "font_style": { "type": "string", "example": "white_semibold_soft_shadow" },
+              "size_pct": { "type": "number", "description": "프레임 높이 대비 글자 크기 %" },
+              "appear_sec": { "type": "number" },
+              "duration_sec": { "type": "number" },
+              "emoji_palette": { "type": "array", "items": { "type": "string" }, "example": ["sparkle", "heart"] },
+              "is_hook": { "type": "boolean", "description": "true면 hook 생성 로직이 채운다" }
+            }
+          }
+        }
+      }
+    },
+    "audio": {
+      "type": "object",
+      "properties": {
+        "music_mood": { "type": "string", "example": "soft_upbeat_aesthetic" },
+        "music_start_sec": { "type": "number", "description": "음악 인 타이밍", "example": 0.0 },
+        "target_lufs": { "type": "number", "example": -23 },
+        "has_voiceover": { "type": "boolean" },
+        "vo_style": { "type": "string" }
+      }
+    },
+    "overlay": {
+      "type": "object",
+      "description": "플랫폼 UI/브랜딩 오버레이",
+      "properties": {
+        "platform_watermark": { "type": "string", "example": "tiktok_logo_plus_handle" },
+        "handle_position": { "type": "string", "example": "left_mid" },
+        "end_card": { "type": "string", "enum": ["none", "follow_search_bar", "logo_card"] }
+      }
+    },
+    "visual": {
+      "type": "object",
+      "properties": {
+        "color_grade": { "type": "string", "example": "warm_soft_pastel" },
+        "lighting": { "type": "string", "example": "natural_window_soft" },
+        "accent_color": { "type": "string", "example": "#E8A0B8" },
+        "creator_count": { "type": "integer", "example": 1 },
+        "setting": { "type": "string", "example": "home_interior_daylight" }
+      }
+    }
+  }
+}
