@@ -1,0 +1,26 @@
+[project]
+name = "short-form-harness"
+version = "0.1.0"
+description = "숏폼 영상 생성 하네스 — 레퍼런스 분석 + 스타일 기반 생성 파이프라인"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "google-genai>=1.0.0",
+    "moviepy>=1.0.3",
+    "librosa>=0.10.0",
+    "jsonschema>=4.21.0",
+    "hypothesis>=6.100.0",
+    "pytest>=8.0.0",
+    "python-dotenv>=1.0.0",
+    "Pillow>=10.0.0",
+    "numpy>=1.26.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "hypothesis>=6.100.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
