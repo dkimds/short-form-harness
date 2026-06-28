@@ -117,6 +117,19 @@ retro.md (작성 중 — 작업하며 채워간다)
   시도한 것: result.stdout 에서 JSON 파싱 → 항상 -23.0 기본값만 반환
   우회: result.stderr에서 regex `\{[^{}]+\}` 로 JSON 블록 추출 → 해결
 
+  Task 4.2 / 체크포인트1 (Gemini 429 rate limit):
+  증상: free tier 일일 할당량 0 — analyze 실행 즉시 429 RESOURCE_EXHAUSTED
+  원인: gemini-2.0-flash free tier `GenerateRequestsPerDayPerProjectPerModel` limit = 0
+        (이미 당일 다른 호출로 소진된 상태)
+  결과: vision 결과 None → narrative/captions/visual 빈 상태로 profile 저장
+  우회: 스키마는 통과(required 필드 없음), pacing/format/audio는 정상. 다음날 재시도 또는 유료 키 사용
+  → retro 교훈: 분석 파이프라인이 vision 없이도 graceful degradation으로 profile 저장까지 완주함을 확인
+
+  Task 4.2 (librosa 미설치):
+  증상: `No module named 'librosa'` — audio onset/VO 감지 스킵, 기본값 반환
+  원인: requirements.txt에 있지만 uv 환경에 아직 설치 안 됨
+  우회: `uv pip install librosa` 필요. LUFS는 ffmpeg로 측정하므로 핵심 기능엔 영향 없음
+
 [LOG C] 모델 벤치 — 모델 바꿀 때마다
   단계: 설정 | 모델: gemini-2.0-flash(기본), imagen-3.0-generate-002, veo-2.0-generate-001
   관찰: 기본값만 설정, 실제 호출은 분석 파이프라인 구현 후 측정 예정

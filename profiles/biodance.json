@@ -1,0 +1,66 @@
+{
+  "meta": {
+    "profile_id": "c8108fedfc57",
+    "source_refs": [
+      "refs/reference1.mp4",
+      "refs/reference2.mp4"
+    ],
+    "extracted_by": "gemini-2.0-flash",
+    "genre": "beauty_skincare_ugc_ad"
+  },
+  "format": {
+    "aspect_ratio": "9:16",
+    "resolution": "576x1024",
+    "fps": 30.0,
+    "duration_sec_range": [
+      10.7,
+      12.168662
+    ]
+  },
+  "pacing": {
+    "cut_count_range": [
+      4,
+      12
+    ],
+    "avg_shot_len_sec": 1.9669160833333332,
+    "shot_len_distribution_sec": [
+      0.33333300000000055,
+      0.36666699999999985,
+      0.43333299999999997,
+      0.43333399999999944,
+      0.433334,
+      0.46666600000000047,
+      0.4666669999999993,
+      0.7999999999999998,
+      0.833333,
+      0.9999999999999991,
+      1.233333,
+      1.2999999999999998,
+      1.3000000000000007,
+      1.6,
+      1.733333,
+      1.866667,
+      4.035328999999999,
+      4.233333
+    ],
+    "rhythm_mode": "mixed",
+    "hook_cut_density": "high"
+  },
+  "captions": {
+    "slots": []
+  },
+  "audio": {
+    "music_start_sec": 0.0,
+    "target_lufs": -23.0,
+    "has_voiceover": false
+  },
+  "overlay": {
+    "platform_watermark": "placeholder",
+    "handle_position": "left_mid",
+    "end_card": "none"
+  },
+  "narrative": {
+    "beats": []
+  },
+  "visual": {}
+}
