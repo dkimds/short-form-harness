@@ -125,6 +125,12 @@ retro.md (작성 중 — 작업하며 채워간다)
   우회: 스키마는 통과(required 필드 없음), pacing/format/audio는 정상. 다음날 재시도 또는 유료 키 사용
   → retro 교훈: 분석 파이프라인이 vision 없이도 graceful degradation으로 profile 저장까지 완주함을 확인
 
+  Task 4.2 체크포인트1 (gemini-2.0-flash 모델 deprecated):
+  증상: 유료 키로 교체 후에도 404 NOT_FOUND — "This model is no longer available"
+  원인: gemini-2.0-flash가 2026-06-01부로 완전 종료. 기본값으로 하드코딩된 모델명이 구버전
+  우회: config.py 기본값을 gemini-2.5-flash로 변경, .env에 GEMINI_MODEL=gemini-2.5-flash 추가
+  → 교훈: 모델명을 코드에 고정하는 것 자체가 리스크. 환경변수 오버라이드 구조가 빛을 발함
+
   Task 4.2 (librosa 미설치):
   증상: `No module named 'librosa'` — audio onset/VO 감지 스킵, 기본값 반환
   원인: requirements.txt에 있지만 uv 환경에 아직 설치 안 됨
