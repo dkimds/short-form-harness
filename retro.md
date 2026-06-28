@@ -101,6 +101,15 @@ retro.md (작성 중 — 작업하며 채워간다)
   트레이드오프: mean centroid>2000Hz + speech_ratio>0.3 기준은 음악↔VO 혼재 시 오탐 가능
   → 면접 떡밥: "VO 감지 왜 단순?" → "레퍼런스 특성 + 시간 트레이드오프 판단"
 
+  Task 3.10 (synthesize_profile.py audio 섹션 병합):
+  AudioStats(ffmpeg 측정: music_start_sec, target_lufs, has_voiceover) +
+  vision audio(Gemini 추출: music_mood, vo_style) → style_profile.audio 하나로 병합
+  이유: 스키마상 audio는 단일 섹션이지만 출처가 두 곳. "분석↔생성 인터페이스는 JSON 하나"
+       원칙을 지키려면 두 출처를 합성 단계에서 합쳐야 함
+  트레이드오프: ffmpeg 측정값(객관적)과 Gemini 해석값(주관적)이 한 섹션에 섞임.
+              music_mood 같은 soft 필드는 Gemini 응답 품질에 의존적
+  → 면접 떡밥: "audio 섹션 두 출처 어떻게 관리?" → 의도적 설계임을 설명 가능
+
 [LOG B] 실패 로그 — 막힐 때마다
 
   Task 3.7 (loudnorm LUFS 파싱):
