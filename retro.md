@@ -95,11 +95,25 @@ retro.md (작성 중 — 작업하며 채워간다)
               대신 future-proof하고 Files API 통합이 더 자연스러움
   → requirements.txt에 `google-genai>=1.0.0` 추가
 
+  Task 3.7 (audio_stats.py VO 감지):
+  정확한 화자분리(pyannote/whisper) vs spectral centroid 휴리스틱 → 휴리스틱 선택
+  이유: 외부 화자분리 모델은 의존성·비용·시간 리스크 큼. 레퍼런스 2편 모두 VO 없음
+  트레이드오프: mean centroid>2000Hz + speech_ratio>0.3 기준은 음악↔VO 혼재 시 오탐 가능
+  → 면접 떡밥: "VO 감지 왜 단순?" → "레퍼런스 특성 + 시간 트레이드오프 판단"
+
 [LOG B] 실패 로그 — 막힐 때마다
-  (Task 2까지는 외부 API 실호출 없이 모킹으로 검증 — 실패 없음)
+
+  Task 3.7 (loudnorm LUFS 파싱):
+  증상: ffmpeg loudnorm이 stderr에 JSON 출력 — stdout 파싱 시 항상 빈값
+  시도한 것: result.stdout 에서 JSON 파싱 → 항상 -23.0 기본값만 반환
+  우회: result.stderr에서 regex `\{[^{}]+\}` 로 JSON 블록 추출 → 해결
 
 [LOG C] 모델 벤치 — 모델 바꿀 때마다
   단계: 설정 | 모델: gemini-2.0-flash(기본), imagen-3.0-generate-002, veo-2.0-generate-001
   관찰: 기본값만 설정, 실제 호출은 분석 파이프라인 구현 후 측정 예정
+
+  단계: 분석/비전 | 모델: gemini-2.0-flash
+  관찰: analyze_vision.md 프롬프트 — beats/captions/visual/audio JSON 강제 출력
+        실제 응답 품질은 Task 3.9 vision.py 실행 시 측정 예정
 ============================================================
 -->
