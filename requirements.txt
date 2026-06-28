@@ -3,7 +3,8 @@
 # 설치: uv pip install -r requirements.txt
 
 # Google AI SDK (Gemini, Imagen, Veo, TTS)
-google-generativeai>=0.8.0
+# google-generativeai는 deprecated됨 — google-genai를 사용할 것
+google-genai>=1.0.0
 
 # 영상 합성 엔진
 moviepy>=1.0.3
