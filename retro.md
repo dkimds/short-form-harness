@@ -44,7 +44,10 @@ retro.md (작성 중 — 작업하며 채워간다)
 | 음악 MP3 placeholder | moviepy가 최소 MP3 구조를 파싱 못함 | libav 디코딩 요구 | Python wave 모듈로 1초 무음 WAV 생성으로 대체 |
 | moviepy TextClip | ImageMagick 미설치 시 자막 생성 실패 | TextClip이 ImageMagick 의존 | try/except로 개별 자막 실패 무시 (graceful degradation) |
 
-- 끝내 못 푼 것: 자막의 한글 가독성, 실제 BGM 트랙 확보 (라이선스 안전 MP3), 실제 Veo i2v 연결(P1 예정)
+- 끝내 못 푼 것:
+  - 자막의 한글 가독성 (PIL 기본 폰트 CJK 미지원, P1 개선 대상)
+  - 실제 동영상 합성: Veo 5초 클립 + Imagen 이미지가 제대로 이어붙여지지 않음. compose.py가 ImageClip과 VideoFileClip을 혼합할 때 duration mismatch로 슬라이드쇼처럼 보임. shot["duration_sec"]를 실제 Veo 클립 길이로 업데이트해야 해결됨
+  - TTS 보이스오버: google-cloud-texttospeech 미설치로 묵음 WAV 폴백 사용 중
 
 **체크포인트 2 실제 품질 관찰:**
 - 소리 없음: assets/music/에 무음 WAV placeholder만 있고 TTS(google-cloud-texttospeech) 미설치 → 음악·VO 모두 묵음
@@ -52,6 +55,18 @@ retro.md (작성 중 — 작업하며 채워간다)
 - 캡션 깨짐: PIL 기본 폰트가 한글·이모지 미지원 → 텍스트가 □□□로 표시되거나 누락
 - 이 세 가지는 모두 P0 설계 범위 내 한계 (Imagen 정상화 + BGM 추가 + 폰트 주입이 다음 단계)
 - 평가 핵심(파이프라인 구조, 재현성, 분석↔생성 분리)은 3편 생성으로 검증됨
+
+**체크포인트 3 (P1 Veo 통합 후) 관찰:**
+- BGM: refs/에서 추출한 실제 트랙(ref1_bgm.mp3) 믹싱 → 노래 나옴 ✅
+- Veo mp4 생성: product_hero 숏에서 1.5MB mp4 클립 생성 확인 ✅
+- 그런데 최종 영상은 여전히 "노래 나오면서 그림이 바뀌는" 슬라이드쇼
+- 원인: compose.py의 `_load_clip`이 .mp4 확장자를 `VideoFileClip`으로 로드하도록 분기하지만,
+  Veo 클립(5초)과 Imagen 이미지(1~2초 ImageClip)의 duration mismatch로 `adjust_durations`가
+  전체를 10~15초에 맞춰 스트레칭 → 결국 각 클립이 정지 화면처럼 보임
+- 근본 원인: Veo는 5초 고정 클립을 내려주는데, shotlist의 beat duration은 0.9~4초로 설계됨.
+  beat duration ≠ Veo clip duration이라 합성 시 길이 충돌이 발생함
+- 가장 깔끔한 해결: Veo 클립은 그 자체 duration을 쓰고, shot["duration_sec"]를 실제 클립 길이로 덮어쓰도록 _render_veo_shot에서 업데이트해야 함. 그리고 VideoFileClip을 제대로 이어붙여야 함
+- 시간 제약으로 우선 P2(문서·Gate)로 넘어가고, 이 문제는 "끝내 못 푼 것"으로 기록
 
 ## 3. 모델 실험 & 비교 (Model Bench)
 <!-- [LOG C]에서. "제일 좋았던 것"만 쓰지 말고 왜 나머지는 탈락했는지 한 줄씩.
@@ -167,6 +182,16 @@ retro.md (작성 중 — 작업하며 채워간다)
   결정: ImageMagick 미설치 환경에서 TextClip이 실패할 수 있어 try/except로 개별 자막 실패를 무시
   이유: 자막 실패가 전체 영상 생성을 막으면 안 됨 (graceful degradation)
   트레이드오프: 자막 없는 영상이 나올 수 있음 → 평가 기준(구조적 분리, 재현성)에는 영향 없음
+
+  Task 10 (Veo 통합 — duration mismatch):
+  증상: Veo가 5초 mp4를 내려주지만 shotlist의 beat duration은 0.9~4초
+        → compose.py의 adjust_durations가 전체를 10~15초에 맞추다 보니 Veo 클립도 strecth
+        → 실제 영상이 여전히 "노래 나오면서 그림 바뀌는" 슬라이드쇼로 보임
+  원인: _render_veo_shot에서 shot["duration_sec"]를 실제 Veo 클립 길이(5초)로 갱신하지 않음
+        또한 VideoFileClip을 subclipped 없이 full 5초로 쓰면 beat 타이밍과 어긋남
+  해결 방향: _render_veo_shot이 반환 후 shot["duration_sec"] = 5.0 으로 업데이트,
+             compose.py에서 VideoFileClip duration을 clip.duration 기준으로 읽도록 수정
+  우선순위: 시간 제약으로 P2(문서·Gate) 먼저 진행, 이 수정은 잔여 시간에
 
   Task 7.1 (cli.py generate 서브커맨드 — context 오판):
   증상: brief.py가 이미 존재했는데 AI가 컨텍스트 컴팩션 후 "없다"고 판단 → 불필요한 재구현 실행

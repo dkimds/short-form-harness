@@ -257,20 +257,21 @@ def render_assets(
     *,
     voice: str = _DEFAULT_VOICE,
 ) -> dict:
-    """P0 에셋 생성: 모든 imagen_image 숏에 대해 이미지를 생성하고,
+    """에셋 생성: 모든 imagen_image 및 veo_i2v 숏에 대해 에셋을 생성하고,
     has_voiceover=True이면 TTS 보이스오버를 생성한다.
 
     동작 순서:
-    1. shotlist["shots"]를 순회해 asset_type="imagen_image"인 숏마다
-       client.generate_image(prompt, aspect_ratio="9:16")를 호출한다.
-    2. 반환된 이미지 바이트를 run_dir/shot_{index:02d}.png에 저장한다.
-    3. 9:16 비율 검증; 비율 불일치 또는 VendorError이면 폴백 이미지를 생성한다.
+    1. shotlist["shots"]를 순회해 asset_type에 따라 처리한다:
+       - "imagen_image": client.generate_image(prompt, aspect_ratio="9:16")를 호출한다.
+       - "veo_i2v": Imagen 이미지 생성 후 client.image_to_video()로 비디오 클립을 생성한다.
+    2. 반환된 에셋을 run_dir/shot_{index:02d}.{ext}에 저장한다.
+    3. 9:16 비율 검증(이미지); 비율 불일치 또는 VendorError이면 폴백 이미지를 생성한다.
     4. shotlist의 해당 shot["asset_path"]에 저장 경로를 기록한다.
     5. profile.audio.has_voiceover == True이면 client.synthesize_speech를 호출해
        run_dir/voiceover.wav에 저장한다.
 
     Args:
-        client: VendorClient 인스턴스 (generate_image, synthesize_speech 메서드 필요)
+        client: VendorClient 인스턴스 (generate_image, image_to_video, synthesize_speech 메서드 필요)
         shotlist: build_shotlist()가 반환한 숏리스트 dict (in-place 수정됨)
         profile: style_profile dict
         run_dir: outputs/<run_id>/ 디렉터리 절대 경로
@@ -292,9 +293,9 @@ def render_assets(
     for shot in shots:
         asset_type = shot.get("asset_type", "")
         index: int = shot.get("index", 0)
-        out_path = run_path / f"shot_{index:02d}.png"
 
         if asset_type == "imagen_image":
+            out_path = run_path / f"shot_{index:02d}.png"
             prompt = shot.get("prompt", "")
             _render_image_shot(
                 client=client,
@@ -303,19 +304,25 @@ def render_assets(
                 profile=profile,
                 out_path=out_path,
             )
+            shot["asset_path"] = str(out_path)
+            logger.debug("[assets] shot %d 저장: %s", index, out_path)
+        elif asset_type == "veo_i2v":
+            out_path = run_path / f"shot_{index:02d}.png"
+            _render_veo_shot(
+                client=client,
+                shot=shot,
+                profile=profile,
+                out_path=out_path,
+            )
+            logger.debug("[assets] shot %d (veo_i2v) 저장: %s", index, shot.get("asset_path", ""))
         else:
-            # P0에서는 imagen_image 외 타입 (veo_i2v 등)도 이미지로 처리
-            # (veo_i2v는 P1에서 실제 구현)
             if asset_type:
                 logger.debug(
-                    "[assets] shot %d: asset_type=%s — P0에서는 건너뜀",
+                    "[assets] shot %d: asset_type=%s — 지원하지 않는 타입, 건너뜀",
                     index,
                     asset_type,
                 )
             continue
-
-        shot["asset_path"] = str(out_path)
-        logger.debug("[assets] shot %d 저장: %s", index, out_path)
 
     # 보이스오버 생성
     has_voiceover = profile.get("audio", {}).get("has_voiceover", False)
@@ -392,6 +399,99 @@ def _render_image_shot(
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_bytes(image_bytes)
         logger.debug("[assets] shot %s: 이미지 저장 완료 (%d bytes)", index, len(image_bytes))
+
+
+def _render_veo_shot(
+    client: object,
+    shot: dict,
+    profile: dict,
+    out_path: Path,
+) -> None:
+    """단일 veo_i2v 숏에 대해 이미지 → 비디오 클립을 생성하고 out_path.with_suffix(".mp4")에 저장한다.
+
+    처리 순서:
+    1. Imagen으로 이미지를 먼저 생성한다 (폴백 가능).
+    2. 생성된 이미지 바이트를 사용해 image_to_video()로 mp4 클립을 생성한다.
+    3. mp4 바이트를 shot_{index:02d}.mp4에 저장하고 shot["asset_path"]를 mp4 경로로 설정한다.
+    4. image_to_video() VendorError 시: Imagen 이미지(또는 폴백 이미지)를 .png로 저장하고
+       shot["asset_path"]를 png 경로로 설정한다.
+
+    Args:
+        client: VendorClient 인스턴스
+        shot: 해당 숏 dict (index, role, prompt, duration_sec 포함)
+        profile: style_profile dict (폴백 색상에 사용)
+        out_path: 기본 출력 경로 (.png 확장자 기준, .mp4로 변환해 저장)
+    """
+    index = shot.get("index", "?")
+    prompt = shot.get("prompt", "")
+    duration_sec: float = shot.get("duration_sec", 3.0)
+
+    # 1) Imagen으로 이미지 생성 (폴백 포함)
+    image_bytes: bytes | None = None
+    use_image_fallback = False
+
+    try:
+        image_bytes = client.generate_image(prompt, aspect_ratio="9:16")  # type: ignore[union-attr]
+        if not _verify_ratio(image_bytes):
+            logger.warning(
+                "[assets] veo shot %s: Imagen 이미지가 9:16 비율이 아님 — 폴백 이미지 사용.",
+                index,
+            )
+            use_image_fallback = True
+    except VendorError as exc:
+        logger.warning(
+            "[assets] veo shot %s: Imagen 호출 실패 — 폴백 이미지 사용. 원인: %s",
+            index,
+            exc,
+        )
+        use_image_fallback = True
+    except Exception as exc:
+        logger.warning(
+            "[assets] veo shot %s: Imagen 예상치 못한 오류 — 폴백 이미지 사용. 원인: %s",
+            index,
+            exc,
+        )
+        use_image_fallback = True
+
+    if use_image_fallback or image_bytes is None:
+        # 폴백 이미지 생성 후 바이트 읽기
+        _generate_fallback_image(shot, profile, out_path)
+        image_bytes = out_path.read_bytes()
+
+    # 2) image_to_video 호출
+    mp4_path = out_path.with_suffix(".mp4")
+    try:
+        video_bytes = client.image_to_video(image_bytes, prompt, duration_sec=duration_sec)  # type: ignore[union-attr]
+        if not video_bytes:
+            raise VendorError("Veo returned empty video bytes", vendor="Veo", operation="image_to_video")
+        mp4_path.parent.mkdir(parents=True, exist_ok=True)
+        mp4_path.write_bytes(video_bytes)
+        shot["asset_path"] = str(mp4_path)
+        logger.info(
+            "[assets] veo shot %s: mp4 저장 완료 (%d bytes): %s",
+            index,
+            len(video_bytes),
+            mp4_path,
+        )
+    except VendorError as exc:
+        # Veo 실패 → Imagen 이미지(또는 폴백 이미지)를 .png로 저장해 fallback
+        logger.warning(
+            "[assets] veo shot %s: Veo 호출 실패 — Imagen 이미지로 폴백. 원인: %s",
+            index,
+            exc,
+        )
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_bytes(image_bytes)
+        shot["asset_path"] = str(out_path)
+    except Exception as exc:
+        logger.warning(
+            "[assets] veo shot %s: 예상치 못한 오류 — Imagen 이미지로 폴백. 원인: %s",
+            index,
+            exc,
+        )
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_bytes(image_bytes)
+        shot["asset_path"] = str(out_path)
 
 
 def _render_voiceover(

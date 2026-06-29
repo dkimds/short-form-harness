@@ -300,25 +300,63 @@ class VendorClient:
     ) -> bytes:
         """Veo i2v: 이미지 → 비디오 클립 바이트. (요구사항 10.2)
 
-        P0 단계에서는 스텁으로 구현되어 빈 바이트를 반환한다.
-        # P1: replace stub with real Veo API call
+        Veo predictLongRunning API를 호출해 이미지에서 비디오 클립을 생성한다.
+        작업이 완료될 때까지 폴링하며, 최대 60초(20회 × 3초) 대기한다.
+        모든 재시도를 소진하거나 타임아웃되면 VendorError를 raise한다.
 
         Args:
-            image: 입력 이미지 바이트 (PNG/JPEG).
+            image: 입력 이미지 바이트 (PNG 형식).
             prompt: 영상 생성 지침 프롬프트.
-            duration_sec: 생성할 클립의 길이(초).
+            duration_sec: 생성할 클립의 길이(초). Veo는 정수 초를 받는다.
 
         Returns:
-            생성된 비디오 클립의 바이트 데이터.
-            P0에서는 항상 ``b""``를 반환한다.
+            생성된 비디오 클립의 바이트 데이터 (mp4).
+
+        Raises:
+            VendorError: Veo API 호출이 모든 재시도 소진 후에도 실패한 경우,
+                         또는 60초 내에 작업이 완료되지 않은 경우.
         """
-        warnings.warn(
-            "Veo not yet implemented, returning empty bytes",
-            stacklevel=2,
-        )
-        logger.warning("Veo not yet implemented, returning empty bytes")
-        # P1: replace stub with real Veo API call
-        return b""
+        def _call() -> bytes:
+            operation = self._client.models.generate_videos(
+                model=self._config.veo_model,
+                source=genai_types.GenerateVideosSource(
+                    prompt=prompt,
+                    image=genai_types.Image(image_bytes=image, mime_type="image/png"),
+                ),
+                config=genai_types.GenerateVideosConfig(
+                    aspect_ratio="9:16",
+                    number_of_videos=1,
+                    duration_seconds=max(5, min(8, int(duration_sec))),  # Veo: 5~8초 범위
+                ),
+            )
+            # 완료될 때까지 폴링 (최대 150초 = 30회 × 5초)
+            for _ in range(30):
+                if operation.done:
+                    break
+                time.sleep(5)
+                operation = self._client.operations.get(operation)
+            else:
+                # 루프가 break 없이 종료 → 타임아웃
+                raise RuntimeError("Veo operation did not complete within 60 seconds")
+
+            video = operation.response.generated_videos[0].video
+            # Veo returns either video_bytes or a URI (download required)
+            if video.video_bytes:
+                return video.video_bytes
+            if video.uri:
+                import urllib.request
+                req = urllib.request.Request(
+                    video.uri,
+                    headers={"x-goog-api-key": self._config.google_api_key},
+                )
+                with urllib.request.urlopen(req) as resp:
+                    video_bytes = resp.read()
+                if not video_bytes:
+                    raise RuntimeError("Veo URI download returned empty bytes")
+                return video_bytes
+            raise RuntimeError("Veo returned empty video bytes and no URI")
+
+        return _retry("image_to_video", "Veo", _call)
 
     def synthesize_speech(self, text: str, *, voice: str) -> bytes:
         """Google TTS: 텍스트 → 오디오 바이트. (요구사항 10.3)

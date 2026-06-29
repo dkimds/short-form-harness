@@ -229,4 +229,3 @@ outputs/
 
 # uv 가상환경 (.venv 는 위 Environments 섹션에도 있으나 명시적으로 재확인)
 .venv/
-/assets

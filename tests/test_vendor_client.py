@@ -125,23 +125,111 @@ class TestRetry:
 
 
 # ---------------------------------------------------------------------------
-# image_to_video 스텁 테스트
+# image_to_video 테스트 (실제 Veo API 연결)
 # ---------------------------------------------------------------------------
 class TestVendorClientImageToVideo:
-    def test_returns_empty_bytes(self):
-        client = _make_client()
-        with warnings.catch_warnings(record=True):
-            warnings.simplefilter("always")
-            result = client.image_to_video(b"fake_image", "prompt", duration_sec=3.0)
-        assert result == b""
+    def _make_veo_operation(self, done: bool = True, video_bytes: bytes = b"mp4data") -> MagicMock:
+        """모킹된 Veo 작업 객체를 반환한다."""
+        operation = MagicMock()
+        operation.done = done
+        video = MagicMock()
+        video.video_bytes = video_bytes
+        generated_video = MagicMock()
+        generated_video.video = video
+        operation.response.generated_videos = [generated_video]
+        return operation
 
-    def test_emits_warning(self):
+    def test_returns_video_bytes_when_done_immediately(self):
+        """Veo 작업이 즉시 완료되면 비디오 바이트를 반환한다."""
         client = _make_client()
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            client.image_to_video(b"fake", "prompt", duration_sec=5.0)
-        assert len(w) >= 1
-        assert "Veo not yet implemented" in str(w[0].message)
+        operation = self._make_veo_operation(done=True, video_bytes=b"fake_mp4_bytes")
+        client._client.models.generate_videos.return_value = operation
+
+        result = client.image_to_video(b"png_bytes", "test prompt", duration_sec=3.0)
+        assert result == b"fake_mp4_bytes"
+
+    def test_calls_generate_videos_with_correct_params(self):
+        """generate_videos는 올바른 파라미터로 호출된다."""
+        client = _make_client()
+        operation = self._make_veo_operation(done=True)
+        client._client.models.generate_videos.return_value = operation
+
+        client.image_to_video(b"img", "my prompt", duration_sec=5.0)
+
+        call_kwargs = client._client.models.generate_videos.call_args.kwargs
+        assert call_kwargs["model"] == client._config.veo_model
+        # source에 prompt와 image가 포함됨
+        source_arg = call_kwargs["source"]
+        assert source_arg.prompt == "my prompt"
+        # config에 올바른 값들이 전달됨을 확인
+        config_arg = call_kwargs["config"]
+        assert config_arg.duration_seconds == 5  # int로 변환
+        assert config_arg.aspect_ratio == "9:16"
+        assert config_arg.number_of_videos == 1
+
+    def test_polls_until_done(self):
+        """작업이 완료될 때까지 폴링한다."""
+        client = _make_client()
+        op_not_done = MagicMock()
+        op_not_done.done = False
+        op_done = self._make_veo_operation(done=True, video_bytes=b"final_mp4")
+
+        client._client.models.generate_videos.return_value = op_not_done
+        client._client.operations.get.return_value = op_done
+
+        with patch("src.common.vendor_client.time.sleep"):
+            result = client.image_to_video(b"img", "prompt", duration_sec=3.0)
+
+        assert result == b"final_mp4"
+        client._client.operations.get.assert_called_once_with(op_not_done)
+
+    def test_raises_runtime_error_on_timeout(self):
+        """60초 내 완료되지 않으면 RuntimeError가 VendorError로 래핑된다."""
+        client = _make_client()
+        op_not_done = MagicMock()
+        op_not_done.done = False
+        client._client.models.generate_videos.return_value = op_not_done
+        client._client.operations.get.return_value = op_not_done  # 항상 미완료
+
+        with patch("src.common.vendor_client.time.sleep"):
+            with pytest.raises(VendorError) as exc_info:
+                client.image_to_video(b"img", "prompt", duration_sec=3.0)
+
+        assert exc_info.value.operation == "image_to_video"
+        assert exc_info.value.vendor == "Veo"
+
+    def test_raises_vendor_error_on_api_failure(self):
+        """Veo API 호출 실패 시 VendorError가 raise된다."""
+        client = _make_client()
+        client._client.models.generate_videos.side_effect = RuntimeError("quota exceeded")
+
+        with patch("src.common.vendor_client.time.sleep"):
+            with pytest.raises(VendorError) as exc_info:
+                client.image_to_video(b"img", "prompt", duration_sec=3.0)
+
+        assert exc_info.value.vendor == "Veo"
+        assert exc_info.value.operation == "image_to_video"
+
+    def test_raises_vendor_error_on_empty_bytes(self):
+        """Veo가 빈 바이트를 반환하면 VendorError가 raise된다."""
+        client = _make_client()
+        operation = self._make_veo_operation(done=True, video_bytes=b"")
+        client._client.models.generate_videos.return_value = operation
+
+        with patch("src.common.vendor_client.time.sleep"):
+            with pytest.raises(VendorError):
+                client.image_to_video(b"img", "prompt", duration_sec=3.0)
+
+    def test_duration_converted_to_int(self):
+        """duration_sec은 5~8초로 클램프되어 Veo config에 전달된다."""
+        client = _make_client()
+        operation = self._make_veo_operation(done=True)
+        client._client.models.generate_videos.return_value = operation
+
+        client.image_to_video(b"img", "prompt", duration_sec=3.7)
+
+        config_arg = client._client.models.generate_videos.call_args.kwargs["config"]
+        assert config_arg.duration_seconds == 5  # 3.7 → clamp to 5 (Veo min)
 
 
 # ---------------------------------------------------------------------------

@@ -137,7 +137,7 @@ def build_shotlist(
     pacing.cut_count_range에서 총 컷 수를 샘플링하고, 각 beat에 비율 기반으로
     컷 수를 배분한다. 각 beat 내에서 컷들은 beat 길이를 균등 분할한다.
 
-    product_hero beats는 P0에서 'imagen_image'로 처리한다(P1에서 'veo_i2v').
+    product_hero beats는 'veo_i2v'로 처리한다.
     나머지 모든 beats는 'imagen_image'다.
 
     Args:
@@ -191,9 +191,8 @@ def build_shotlist(
         else:
             continue
 
-        # asset_type 결정: P0에서는 product_hero도 imagen_image
-        # (P1에서 product_hero → 'veo_i2v')
-        asset_type = "imagen_image"
+        # asset_type 결정: product_hero → 'veo_i2v' (P1 활성화), 나머지 → 'imagen_image'
+        asset_type = "veo_i2v" if role == "product_hero" else "imagen_image"
 
         # 프롬프트 구성
         prompt = _build_prompt_text(beat, profile, brief)
