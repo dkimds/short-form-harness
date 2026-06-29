@@ -207,6 +207,15 @@ retro.md (작성 중 — 작업하며 채워간다)
   영향: 코드 결과는 동일(파일 덮어쓰기), 불필요한 subagent 호출 1회 낭비
   교훈: 컨텍스트 경계를 넘는 작업에서는 "파일 존재 여부를 먼저 확인"하는 단계가 필요
 
+  Task 12.1 (재사용성 통합 테스트 — compose/gate 제외):
+  결정: `_run_full_pipeline`에서 `compose_video`와 `run_gate`를 제외하고 brief→shotlist 범위만 테스트
+  이유: compose_video는 moviepy + ffmpeg 인코딩을 실제로 실행하는데, 테스트 환경에서
+        ffmpeg 경로·코덱 의존성으로 깨질 수 있어 의존성 없이 돌아가는 범위만 선택
+  트레이드오프: "다른 입력 → 다른 final.mp4"는 파일 내용 레벨에서 자동 검증되지 않음.
+               brief["user_input"]과 shotlist["shots"][0]["prompt"]가 다름을 확인하는 수준.
+  개선 방향: compose_video를 MagicMock으로 patch하고 빈 mp4 파일을 직접 만들어 경로를 반환하게 하면
+             final.mp4까지 포함한 완전한 통합 테스트가 가능함 (시간 제약으로 미구현)
+
 [LOG C] 모델 벤치 — 모델 바꿀 때마다
   단계: 설정 | 모델: gemini-2.0-flash(기본), imagen-3.0-generate-002, veo-2.0-generate-001
   관찰: 기본값만 설정, 실제 호출은 분석 파이프라인 구현 후 측정 예정
