@@ -46,7 +46,7 @@ retro.md (작성 중 — 작업하며 채워간다)
 
 - 끝내 못 푼 것:
   - 자막의 한글 가독성 (PIL 기본 폰트 CJK 미지원, P1 개선 대상)
-  - 실제 동영상 합성: Veo 5초 클립 + Imagen 이미지가 제대로 이어붙여지지 않음. compose.py가 ImageClip과 VideoFileClip을 혼합할 때 duration mismatch로 슬라이드쇼처럼 보임. shot["duration_sec"]를 실제 Veo 클립 길이로 업데이트해야 해결됨
+  - 완전한 동영상: 전체 숏 veo_i2v 설정 완료, 실제 생성은 시간 제약으로 미실행 (6~10분 소요)
   - TTS 보이스오버: google-cloud-texttospeech 미설치로 묵음 WAV 폴백 사용 중
 
 **체크포인트 2 실제 품질 관찰:**
@@ -192,6 +192,14 @@ retro.md (작성 중 — 작업하며 채워간다)
   해결 방향: _render_veo_shot이 반환 후 shot["duration_sec"] = 5.0 으로 업데이트,
              compose.py에서 VideoFileClip duration을 clip.duration 기준으로 읽도록 수정
   우선순위: 시간 제약으로 P2(문서·Gate) 먼저 진행, 이 수정은 잔여 시간에
+
+  Task 10 (Veo — 전체 숏 동영상화 결정):
+  관찰: product_hero만 veo_i2v로 처리하면 나머지 숏이 정지 이미지 → "화장품에 액체만 채워지는" 영상
+  결정: plan.py에서 모든 role의 asset_type을 veo_i2v로 설정 → 전체 숏이 동영상 클립
+  트레이드오프: Veo 호출 6회 × (생성 ~30초 + 폴링 ~30초) ≈ 6~10분 생성 시간
+               하지만 완전한 동영상이 나오는 유일한 방법
+  현재 상태: plan.py 수정 완료, 실제 생성 실행은 시간 제약으로 스킵 → 11(Gate)로 전환
+  → 면접 떡밥: "모든 숏 Veo화의 비용·시간 트레이드오프?" → 히어로만 Veo, 나머지 Ken Burns로 절충안 설명 가능
 
   Task 7.1 (cli.py generate 서브커맨드 — context 오판):
   증상: brief.py가 이미 존재했는데 AI가 컨텍스트 컴팩션 후 "없다"고 판단 → 불필요한 재구현 실행

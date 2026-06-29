@@ -191,8 +191,8 @@ def build_shotlist(
         else:
             continue
 
-        # asset_type 결정: product_hero → 'veo_i2v' (P1 활성화), 나머지 → 'imagen_image'
-        asset_type = "veo_i2v" if role == "product_hero" else "imagen_image"
+        # asset_type 결정: 모든 숏을 veo_i2v로 처리 (전체 동영상 생성)
+        asset_type = "veo_i2v"
 
         # 프롬프트 구성
         prompt = _build_prompt_text(beat, profile, brief)
