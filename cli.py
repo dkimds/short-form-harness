@@ -17,14 +17,22 @@ import logging
 import sys
 from dataclasses import asdict
 
+import traceback
+
 from src.analyze.audio_stats import analyze_audio
 from src.analyze.cut_detect import compute_pacing_metrics, detect_cuts
 from src.analyze.probe import probe, to_format_section
 from src.analyze.synthesize_profile import save_profile, synthesize
 from src.analyze.vision import analyze_vision
 from src.common.config import Config, load_config
-from src.common.exceptions import ConfigError, ProfileValidationError, UnprocessableRefError
+from src.common.exceptions import ConfigError, InputError, ProfileValidationError, UnprocessableRefError
+from src.common.io import make_run_id, make_run_dir, read_json
 from src.common.vendor_client import VendorClient
+from src.generate.brief import UserInput, build_brief, write_prompt_txt
+from src.generate.hook_gen import fill_hook_slot, generate_hook
+from src.generate.plan import build_shotlist, write_shotlist
+from src.generate.assets import render_assets
+from src.generate.compose import compose_video
 
 logger = logging.getLogger(__name__)
 

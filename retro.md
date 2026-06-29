@@ -33,15 +33,18 @@ retro.md (작성 중 — 작업하며 채워간다)
 - **틀렸던 가설:** 처음엔 N개 레퍼런스를 하나로 병합하는 설계였는데, 두 레퍼런스가 서로 다른 스타일(빠른 몽타주 vs 느린 호흡)이라 병합하면 어느 쪽도 안 닮는 평균의 함정에 빠진다는 걸 발견했다. 그래서 '레퍼런스 1개 → 프로파일 1개'로 바꿔, 각 프로파일이 내부적으로 일관된 스타일 계약이 되게 했다.
 
 ## 2. 어디서 막혔나 (Failures & Workarounds)
-<!-- [LOG B]에서 가져온다. 막연한 "어려웠다" 금지. 구체적 증상 + 수치 + 우회.
-     ※ 외부 API 실호출 전이라 아직 비어있음. 구현하며 채운다. -->
+<!-- [LOG B]에서 가져온다. 막연한 "어려웠다" 금지. 구체적 증상 + 수치 + 우회. -->
 
 | 막힌 지점 | 증상(수치 포함) | 원인 추정 | 우회/해결 |
 |---|---|---|---|
-|  |  |  |  |
-|  |  |  |  |
+| Gemini 429 rate limit | free tier 일일 0 할당량 → vision 결과 None | 당일 다른 호출로 소진 | graceful degradation으로 profile은 저장, 다음날 재시도 |
+| Files API ACTIVE 폴링 | 400 FAILED_PRECONDITION "File is not in an ACTIVE state" | 업로드 후 즉시 호출 | files.get()으로 ACTIVE 될 때까지 최대 20초 폴링 |
+| ffmpeg stderr LUFS | stdout 파싱 시 항상 -23.0 기본값 | loudnorm 출력이 stderr에 JSON으로 감 | regex로 stderr에서 JSON 블록 추출 |
+| PIL 기본 폰트 한글 깨짐 | 폴백 이미지의 텍스트가 □□□으로 표시 | PIL 기본 폰트가 CJK 미지원 | P0는 run 지속이 목표라 허용, P1에서 Noto CJK 폰트 주입 예정 |
+| 음악 MP3 placeholder | moviepy가 최소 MP3 구조를 파싱 못함 | libav 디코딩 요구 | Python wave 모듈로 1초 무음 WAV 생성으로 대체 |
+| moviepy TextClip | ImageMagick 미설치 시 자막 생성 실패 | TextClip이 ImageMagick 의존 | try/except로 개별 자막 실패 무시 (graceful degradation) |
 
-- 끝내 못 푼 것: <!-- 솔직하게. "시간 있었으면" 섹션으로 연결. -->
+- 끝내 못 푼 것: 자막의 한글 가독성, 실제 BGM 트랙 확보 (라이선스 안전 MP3), 실제 Veo i2v 연결(P1 예정)
 
 ## 3. 모델 실험 & 비교 (Model Bench)
 <!-- [LOG C]에서. "제일 좋았던 것"만 쓰지 말고 왜 나머지는 탈락했는지 한 줄씩.
@@ -59,9 +62,9 @@ retro.md (작성 중 — 작업하며 채워간다)
 
 ## 4. 시간이 더 있었다면 (Next)
 <!-- "품질 개선" 같은 막연한 말 금지. 구체적 다음 액션 + 시스템 사고가 드러나게. -->
-1.
-2.
-3.
+1. **Noto Color Emoji + CJK 폰트 주입**: P0에서 이모지를 제거한 채 자막을 렌더링했다. PIL에 `assets/fonts/NotoColorEmoji.ttf`와 `NotoSansCJK-Regular.ttf`를 로드해 이모지·한글 자막을 정상 렌더링하는 것이 다음 우선순위. 파일 하나 추가로 자막 완성도가 확 달라진다.
+2. **실제 BGM 트랙 확보**: 현재 `assets/music/`에 무음 WAV 3개가 있어 compose_video는 돌지만 최종 영상에 음악이 없다. Pixabay/Freesound 라이선스 안전 트랙 3개를 추가하면 `select_music`의 mood 매칭이 의미를 가진다.
+3. **Veo i2v 활성화 (P1)**: `vendor_client.py`의 `image_to_video` 스텁을 실제 Veo API로 교체 → `assets.py`의 `veo_i2v` 분기 활성화. product_hero 장면에 움직임이 생기면 레퍼런스와의 시각적 차이가 가장 크게 줄어드는 지점이다.
 
 ## 5. 자기판정 Gate 설계 (가산점 — 진심으로 쓸 것)
 <!-- 실제 구현 못 했어도 설계만 명확하면 점수 나온다. 결정적 체크 / 의미 체크로 나눠라. -->
@@ -78,7 +81,7 @@ retro.md (작성 중 — 작업하며 채워간다)
      면접관이 그걸 물으면 준비된 답이 나오고, 대화를 네 강점으로 끌고 온다. -->
 - 떡밥 1 (SDK 선택): `google-generativeai`(deprecated) 대신 신 SDK `google-genai` 채택. → 예상 질문: "왜 신 SDK?" → 답: deprecated 경고 + future-proof + Files API 통합이 mp4 업로드(분석 단계)에 자연스러움.
 - 떡밥 2 (단일 벤더 lock-in): Gemini 단일 벤더 → vendor_client.py 한 곳에 격리해 OpenAI/Runway 교체 가능하게 추상화. → 예상 질문: "lock-in 위험?" → 답 준비됨.
-- 떡밥 3 (음악 단순화): <!-- 라이브러리 매칭으로 단순화한 이유 — 구현 시 채움 -->
+- 떡밥 3 (음악 단순화): 음악 선택을 mood 단어 교집합 스코어링으로 단순화했다. cosine similarity나 임베딩 기반 매칭이 더 정확하지만, mood 문자열이 `_`로 분리된 영어 키워드 형태여서 단어 교집합으로 충분히 의미 있는 매칭이 가능하다고 판단. → 예상 질문: "더 정교한 매칭은?" → 임베딩 기반 방식과 트레이드오프 설명 가능.
 
 
 <!--
@@ -135,6 +138,28 @@ retro.md (작성 중 — 작업하며 채워간다)
   증상: `No module named 'librosa'` — audio onset/VO 감지 스킵, 기본값 반환
   원인: requirements.txt에 있지만 uv 환경에 아직 설치 안 됨
   우회: `uv pip install librosa` 필요. LUFS는 ffmpeg로 측정하므로 핵심 기능엔 영향 없음
+
+  Task 6.8 (plan.py — beats ↔ cut_count 배분 알고리즘):
+  결정: beats=5개인데 cut_count=12면 비율 기반 배분 + 최소 1컷/beat 보장
+  트레이드오프: beat duration 데이터가 없거나 0이면 순서대로 배분 → 이 경우 페이싱 의미가 약해짐
+  선택: P0에서 veo_i2v도 imagen_image로 처리 — 플래그만 남겨두고 assets.py에서 분기
+
+  Task 6.10 (assets.py — 폴백 이미지 설계):
+  결정: VendorError OR 비율 불일치 시 모두 PIL로 576×1024 단색+텍스트 이미지 생성
+  문제: PIL 기본 폰트는 한글을 렌더링 못함 → 텍스트가 깨져서 나옴
+  우회: 폴백 이미지는 품질보다 "run이 멈추지 않음"이 목표라 허용. 실제 배포라면 NanumGothic 같은 CJK 폰트 필요
+  → 면접 떡밥: "한글 폰트 문제 어떻게 해결?" → "P0는 run 지속이 목표, P1에서 Noto CJK 폰트 주입으로 해결"
+
+  Task 6.12 (compose.py — 음악 파일 선행 조건):
+  결정: 실제 MP3 트랙이 없어 Python wave 모듈로 1초 무음 WAV 3개 생성 (assets/music/)
+  이유: MP3 최소 유효 바이트 구조가 까다롭고 moviepy가 libav/ffmpeg로 디코딩 → WAV가 더 안정적
+  트레이드오프: 실제 트랙이 없으니 compose_video에서 음악 믹싱은 동작하지만 최종 영상에 음악이 없음
+  → 실제 제출용으로는 라이선스 안전 BGM(Pixabay 등)을 assets/music/에 추가해야 함
+
+  Task 6.12 (compose.py — moviepy TextClip 자막):
+  결정: ImageMagick 미설치 환경에서 TextClip이 실패할 수 있어 try/except로 개별 자막 실패를 무시
+  이유: 자막 실패가 전체 영상 생성을 막으면 안 됨 (graceful degradation)
+  트레이드오프: 자막 없는 영상이 나올 수 있음 → 평가 기준(구조적 분리, 재현성)에는 영향 없음
 
 [LOG C] 모델 벤치 — 모델 바꿀 때마다
   단계: 설정 | 모델: gemini-2.0-flash(기본), imagen-3.0-generate-002, veo-2.0-generate-001
