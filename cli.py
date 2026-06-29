@@ -16,8 +16,7 @@ import argparse
 import logging
 import sys
 from dataclasses import asdict
-
-import traceback
+from pathlib import Path
 
 from src.analyze.audio_stats import analyze_audio
 from src.analyze.cut_detect import compute_pacing_metrics, detect_cuts

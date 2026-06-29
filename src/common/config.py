@@ -79,7 +79,7 @@ def load_config() -> Config:
     return Config(
         google_api_key=google_api_key,
         gemini_model=os.environ.get("GEMINI_MODEL", "gemini-2.5-flash"),
-        imagen_model=os.environ.get("IMAGEN_MODEL", "imagen-3.0-generate-002"),
+        imagen_model=os.environ.get("IMAGEN_MODEL", "imagen-4.0-generate-001"),
         veo_model=os.environ.get("VEO_MODEL", "veo-2.0-generate-001"),
         tts_voice=os.environ.get("TTS_VOICE", "en-US-Neural2-F"),
     )

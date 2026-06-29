@@ -212,7 +212,7 @@ def _make_caption_clip(
         설정된 TextClip 또는 None (ImageMagick 없음 등 실패 시)
     """
     try:
-        from moviepy.editor import TextClip  # type: ignore[import]
+        from moviepy import TextClip  # type: ignore[import]
     except ImportError:
         logger.warning("[compose] moviepy를 import할 수 없습니다 — 자막 건너뜀")
         return None
@@ -234,16 +234,15 @@ def _make_caption_clip(
 
     try:
         clip = TextClip(
-            text_clean,
-            fontsize=font_size,
+            text=text_clean,
+            font_size=font_size,
             color="white",
             stroke_color="black",
             stroke_width=1,
-            method="caption",
             size=(text_width, None),
         )
         h_pos, v_pos = _compute_caption_position(anchor, video_height)
-        clip = clip.set_position((h_pos, v_pos)).set_start(appear_sec).set_duration(duration_sec)
+        clip = clip.with_position((h_pos, v_pos)).with_start(appear_sec).with_duration(duration_sec)
         return clip
     except Exception as exc:
         logger.warning("[compose] TextClip 생성 실패 — 자막 건너뜀: %s", exc)
@@ -274,7 +273,7 @@ def _make_overlay_clips(
     clips = []
 
     try:
-        from moviepy.editor import TextClip  # type: ignore[import]
+        from moviepy import TextClip  # type: ignore[import]
     except ImportError:
         logger.warning("[compose] moviepy를 import할 수 없습니다 — overlay 건너뜀")
         return clips
@@ -284,8 +283,8 @@ def _make_overlay_clips(
     watermark_text = _strip_emoji("@handle")
     try:
         handle_clip = TextClip(
-            watermark_text,
-            fontsize=18,
+            text=watermark_text,
+            font_size=18,
             color="white",
             stroke_color="black",
             stroke_width=1,
@@ -304,7 +303,7 @@ def _make_overlay_clips(
         else:
             v_pos = int(video_height * 0.85)
 
-        handle_clip = handle_clip.set_position((h_pos, v_pos)).set_duration(video_duration)
+        handle_clip = handle_clip.with_position((h_pos, v_pos)).with_duration(video_duration)
         clips.append(handle_clip)
     except Exception as exc:
         logger.warning("[compose] 핸들 overlay 생성 실패: %s", exc)
@@ -316,17 +315,17 @@ def _make_overlay_clips(
         try:
             end_text = _strip_emoji("Follow for more")
             end_clip = TextClip(
-                end_text,
-                fontsize=24,
+                text=end_text,
+                font_size=24,
                 color="white",
                 stroke_color="black",
                 stroke_width=1,
             )
             end_clip = (
                 end_clip
-                .set_position(("center", int(video_height * 0.85)))
-                .set_start(end_start)
-                .set_duration(2.0)
+                .with_position(("center", int(video_height * 0.85)))
+                .with_start(end_start)
+                .with_duration(2.0)
             )
             clips.append(end_clip)
         except Exception as exc:
@@ -361,7 +360,7 @@ def compose_video(shotlist: dict, profile: dict, run_dir: str) -> str:
         저장된 final.mp4의 절대 경로 문자열
     """
     try:
-        from moviepy.editor import (  # type: ignore[import]
+        from moviepy import (  # type: ignore[import]
             ImageClip,
             VideoFileClip,
             AudioFileClip,
@@ -413,19 +412,19 @@ def compose_video(shotlist: dict, profile: dict, run_dir: str) -> str:
         clip = _load_clip(asset_path, dur, ImageClip, VideoFileClip, ColorClip)
         # Resize to 9:16
         clip = _resize_clip(clip, _TARGET_WIDTH, _TARGET_HEIGHT)
-        clip = clip.set_duration(dur)
+        clip = clip.with_duration(dur)
         base_clips.append(clip)
 
     if not base_clips:
         logger.warning("[compose] 유효한 클립이 없습니다 — 단색 배경으로 대체합니다.")
         base_clips = [
             ColorClip((_TARGET_WIDTH, _TARGET_HEIGHT), color=(30, 30, 30))
-            .set_duration(duration_min)
+            .with_duration(duration_min)
         ]
 
     # --- 2. 클립 이어붙이기 ---
     try:
-        video = concatenate_videoclips(base_clips, method="compose")
+        video = concatenate_videoclips(base_clips)
     except Exception as exc:
         logger.warning("[compose] concatenate 실패 — 첫 클립만 사용: %s", exc)
         video = base_clips[0]
@@ -443,7 +442,7 @@ def compose_video(shotlist: dict, profile: dict, run_dir: str) -> str:
     # 합성
     try:
         final_video = CompositeVideoClip(all_layers, size=(_TARGET_WIDTH, _TARGET_HEIGHT))
-        final_video = final_video.set_duration(total_duration)
+        final_video = final_video.with_duration(total_duration)
     except Exception as exc:
         logger.warning("[compose] CompositeVideoClip 실패 — 베이스 영상만 사용: %s", exc)
         final_video = video
@@ -459,7 +458,7 @@ def compose_video(shotlist: dict, profile: dict, run_dir: str) -> str:
     )
     if audio_track is not None:
         try:
-            final_video = final_video.set_audio(audio_track)
+            final_video = final_video.with_audio(audio_track)
         except Exception as exc:
             logger.warning("[compose] 오디오 설정 실패: %s", exc)
 
@@ -473,7 +472,6 @@ def compose_video(shotlist: dict, profile: dict, run_dir: str) -> str:
                 fps=_TARGET_FPS,
                 codec="libx264",
                 audio_codec="aac",
-                verbose=False,
                 logger=None,
             )
     except Exception as exc:
@@ -501,21 +499,21 @@ def _load_clip(
     """asset_path로부터 moviepy 클립을 로드한다. 실패 시 ColorClip 폴백."""
     if not asset_path or not Path(asset_path).exists():
         logger.warning("[compose] 에셋 파일 없음 — 단색 폴백: %s", asset_path)
-        return ColorClip((_TARGET_WIDTH, _TARGET_HEIGHT), color=(40, 40, 60)).set_duration(duration)
+        return ColorClip((_TARGET_WIDTH, _TARGET_HEIGHT), color=(40, 40, 60)).with_duration(duration)
 
     ext = Path(asset_path).suffix.lower()
     try:
         if ext in (".png", ".jpg", ".jpeg", ".webp"):
-            return ImageClip(asset_path).set_duration(duration)
+            return ImageClip(asset_path).with_duration(duration)
         elif ext in (".mp4", ".mov", ".avi", ".webm"):
             clip = VideoFileClip(asset_path)
             return clip
         else:
             logger.warning("[compose] 알 수 없는 에셋 형식 — 단색 폴백: %s", asset_path)
-            return ColorClip((_TARGET_WIDTH, _TARGET_HEIGHT), color=(40, 40, 60)).set_duration(duration)
+            return ColorClip((_TARGET_WIDTH, _TARGET_HEIGHT), color=(40, 40, 60)).with_duration(duration)
     except Exception as exc:
         logger.warning("[compose] 클립 로드 실패 — 단색 폴백: %s (%s)", asset_path, exc)
-        return ColorClip((_TARGET_WIDTH, _TARGET_HEIGHT), color=(40, 40, 60)).set_duration(duration)
+        return ColorClip((_TARGET_WIDTH, _TARGET_HEIGHT), color=(40, 40, 60)).with_duration(duration)
 
 
 def _resize_clip(clip: object, width: int, height: int) -> object:
@@ -536,14 +534,14 @@ def _resize_clip(clip: object, width: int, height: int) -> object:
         new_w = int(current_w * scale)
         new_h = int(current_h * scale)
 
-        resized = clip.resize((new_w, new_h))  # type: ignore[attr-defined]
+        resized = clip.resized((new_w, new_h))  # type: ignore[attr-defined]
 
         # center crop
         x_center = new_w // 2
         y_center = new_h // 2
         x1 = x_center - width // 2
         y1 = y_center - height // 2
-        cropped = resized.crop(x1=x1, y1=y1, x2=x1 + width, y2=y1 + height)  # type: ignore[attr-defined]
+        cropped = resized.cropped(x1=x1, y1=y1, x2=x1 + width, y2=y1 + height)  # type: ignore[attr-defined]
         return cropped
     except Exception as exc:
         logger.warning("[compose] 클립 resize 실패 — 원본 사용: %s", exc)
@@ -584,7 +582,7 @@ def _build_audio_track(
     음악 로드 실패 시 None 반환 (영상 합성은 계속).
     """
     try:
-        from moviepy.editor import CompositeAudioClip  # type: ignore[import]
+        from moviepy import CompositeAudioClip  # type: ignore[import]
     except ImportError:
         return None
 
@@ -598,21 +596,21 @@ def _build_audio_track(
 
             # music_start_sec 오프셋 적용
             if music_start_sec > 0 and music_start_sec < music_clip.duration:
-                music_clip = music_clip.subclip(music_start_sec)
+                music_clip = music_clip.subclipped(music_start_sec)
 
             # 음악이 영상보다 짧으면 loop
             if music_clip.duration < video_duration:
                 # AudioFileClip loop
                 loops_needed = int(video_duration / music_clip.duration) + 2
-                from moviepy.editor import concatenate_audioclips  # type: ignore[import]
+                from moviepy import concatenate_audioclips  # type: ignore[import]
                 looped = concatenate_audioclips([music_clip] * loops_needed)
-                music_clip = looped.subclip(0, video_duration)
+                music_clip = looped.subclipped(0, video_duration)
             else:
-                music_clip = music_clip.subclip(0, video_duration)
+                music_clip = music_clip.subclipped(0, video_duration)
 
             # LUFS 정규화 (간략화된 볼륨 계수)
             volume_factor = 10 ** ((target_lufs - _ASSUMED_MUSIC_LUFS) / 20)
-            music_clip = music_clip.volumex(volume_factor)  # type: ignore[attr-defined]
+            music_clip = music_clip.with_volume_scaled(volume_factor)  # type: ignore[attr-defined]
 
             audio_clips.append(music_clip)
         else:
@@ -628,7 +626,7 @@ def _build_audio_track(
         try:
             vo_clip = AudioFileClip(str(vo_path))
             if vo_clip.duration > video_duration:
-                vo_clip = vo_clip.subclip(0, video_duration)
+                vo_clip = vo_clip.subclipped(0, video_duration)
             audio_clips.append(vo_clip)
         except Exception as exc:
             logger.warning("[compose] 보이스오버 로드 실패: %s", exc)
