@@ -112,14 +112,106 @@ def cmd_analyze(args: argparse.Namespace, config: Config, client: VendorClient) 
 
 
 def cmd_generate(args: argparse.Namespace, config: Config, client: VendorClient) -> None:
-    """generate 서브커맨드 — 미구현 스텁.
+    """generate 서브커맨드 — 숏폼 영상 생성 파이프라인.
+
+    Pipeline:
+        build_brief → generate_hook → fill_hook_slot
+        → build_shotlist → render_assets → compose_video
+        → write_prompt_txt → write_shotlist
 
     Args:
-        args: argparse 파싱 결과.
+        args: argparse 파싱 결과. args.profile, args.input, args.runs 를 사용한다.
         config: 설정 객체 (현재 미사용).
-        client: API 래퍼 (현재 미사용).
+        client: API 래퍼.
     """
-    print("generate 서브커맨드는 아직 구현되지 않았습니다.")
+    import random
+
+    # ── 1. 프로파일 로드 ────────────────────────────────────────────────────
+    try:
+        profile = read_json(args.profile)
+    except FileNotFoundError as exc:
+        print(f"오류: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    # ── 2. 입력 타입 감지 ───────────────────────────────────────────────────
+    input_value: str = args.input
+    lower = input_value.lower()
+    if lower.endswith((".jpg", ".png")):
+        kind = "image"
+    elif lower.endswith((".mp4", ".mov")):
+        kind = "video"
+    else:
+        kind = "text"
+
+    # ── 3. UserInput + build_brief ─────────────────────────────────────────
+    user_input = UserInput(kind=kind, value=input_value)
+    try:
+        brief = build_brief(profile, user_input, profile_path=args.profile)
+    except InputError as exc:
+        print(f"입력 오류: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    runs: int = args.runs
+    completed = 0
+
+    for run_idx in range(runs):
+        run_id = make_run_id()
+        run_dir = make_run_dir(run_id)
+        brief["run_dir"] = run_dir
+
+        try:
+            # ── 4. 훅 생성 ────────────────────────────────────────────────
+            hook_text = generate_hook(client, brief, profile)
+
+            # ── 5. 훅 슬롯 채우기 ─────────────────────────────────────────
+            profile_with_hook = fill_hook_slot(profile, hook_text)
+
+            # ── 6. 숏리스트 생성 ──────────────────────────────────────────
+            shotlist = build_shotlist(
+                brief,
+                profile_with_hook,
+                hook_text,
+                rng=random.Random(),
+            )
+
+            # ── 7. 에셋 생성 ──────────────────────────────────────────────
+            shotlist = render_assets(client, shotlist, profile_with_hook, run_dir)
+
+            # ── 8. 영상 합성 ──────────────────────────────────────────────
+            final_mp4_path = compose_video(shotlist, profile_with_hook, run_dir)
+
+            # ── 9. 결과물 기록 ────────────────────────────────────────────
+            write_prompt_txt(brief, hook_text, run_dir)
+            write_shotlist(shotlist, run_dir)
+
+            prompt_txt_path = str(Path(run_dir) / "prompt.txt")
+            completed += 1
+
+            print(
+                f"\n✅ Run {run_idx + 1}/{runs} 완료\n"
+                f"   run_id    : {run_id}\n"
+                f"   final.mp4 : {final_mp4_path}\n"
+                f"   prompt.txt: {prompt_txt_path}"
+            )
+
+        except InputError as exc:
+            print(f"입력 오류 (run {run_idx + 1}): {exc}", file=sys.stderr)
+            if runs == 1:
+                sys.exit(1)
+            else:
+                logger.warning("[generate] run %d/%d 실패 (InputError): %s", run_idx + 1, runs, exc)
+                continue
+
+        except Exception as exc:  # HarnessError and other unexpected errors
+            if runs == 1:
+                print(f"오류: {exc}", file=sys.stderr)
+                sys.exit(1)
+            else:
+                logger.warning("[generate] run %d/%d 실패: %s", run_idx + 1, runs, exc)
+                continue
+
+    if runs > 1:
+        print(f"\n총 {completed}/{runs} 개 run 완료.")
 
 
 def _build_parser() -> argparse.ArgumentParser:

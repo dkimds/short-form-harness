@@ -54,7 +54,12 @@ class UserInput:
 # 퍼블릭 API
 # ---------------------------------------------------------------------------
 
-def build_brief(profile: dict, user_input: UserInput) -> dict:
+def build_brief(
+    profile: dict,
+    user_input: UserInput,
+    *,
+    profile_path: str = "",
+) -> dict:
     """style_profile과 UserInput을 결합해 브리프 dict를 생성한다.
 
     profile에서 narrative·captions·visual·pacing 섹션을 추출하고,
@@ -65,12 +70,14 @@ def build_brief(profile: dict, user_input: UserInput) -> dict:
       - 확장자가 지원 형식(jpg/jpeg/png/mp4/mov)인지 검증
       - 검증 실패 시 InputError raise
 
-    반환된 brief의 run_dir과 profile_path 필드는 caller가 설정한다.
+    반환된 brief의 run_dir 필드는 caller가 설정한다.
 
     Args:
         profile: analyze 단계에서 생성한 style_profile dict.
                  narrative, captions, visual, pacing 섹션을 포함해야 한다.
         user_input: UserInput 인스턴스 (kind + value).
+        profile_path: 입력 프로파일 JSON 파일의 경로 (선택, 기본값: "").
+                      write_prompt_txt에서 기록에 사용된다.
 
     Returns:
         브리프 dict — 키: user_input, narrative, captions, visual, pacing,
@@ -95,7 +102,7 @@ def build_brief(profile: dict, user_input: UserInput) -> dict:
         "pacing": profile.get("pacing", {}),
         # caller가 설정하는 필드
         "run_dir": "",
-        "profile_path": "",
+        "profile_path": profile_path,
     }
 
     logger.info(
