@@ -32,6 +32,7 @@ from src.generate.hook_gen import fill_hook_slot, generate_hook
 from src.generate.plan import build_shotlist, write_shotlist
 from src.generate.assets import render_assets
 from src.generate.compose import compose_video
+from src.generate.gate import run_gate
 
 logger = logging.getLogger(__name__)
 
@@ -183,14 +184,20 @@ def cmd_generate(args: argparse.Namespace, config: Config, client: VendorClient)
             write_prompt_txt(brief, hook_text, run_dir)
             write_shotlist(shotlist, run_dir)
 
+            # ── 10. Gate QA 판정 ──────────────────────────────────────────
+            gate_result = run_gate(client, final_mp4_path, profile_with_hook, run_dir)
+            gate_status = "PASS" if gate_result.passed else "FAIL"
+
             prompt_txt_path = str(Path(run_dir) / "prompt.txt")
+            gate_json_path = str(Path(run_dir) / "gate.json")
             completed += 1
 
             print(
                 f"\n✅ Run {run_idx + 1}/{runs} 완료\n"
                 f"   run_id    : {run_id}\n"
                 f"   final.mp4 : {final_mp4_path}\n"
-                f"   prompt.txt: {prompt_txt_path}"
+                f"   prompt.txt: {prompt_txt_path}\n"
+                f"   gate      : {gate_status} → {gate_json_path}"
             )
 
         except InputError as exc:

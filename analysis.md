@@ -1,0 +1,138 @@
+# 레퍼런스 분석 — biodance.json 도출 근거
+
+## 레퍼런스 분석 개요
+
+분석 대상: `refs/reference1.mp4`, `refs/reference2.mp4`
+분석 도구: ffprobe(기술 메타), ffmpeg(컷 감지·LUFS), librosa(오디오), Gemini 2.5 Flash(비전)
+산출물: `profiles/biodance.json` (`profile_id: 2982d2493118`)
+
+---
+
+## 기술 메타데이터
+
+| 항목 | reference1 | reference2 |
+|---|---|---|
+| 해상도 | 576×1024 | 576×1024 |
+| 종횡비 | 9:16 | 9:16 |
+| FPS | 30 | 30 |
+| 재생 시간 | 10.7초 | 12.2초 |
+
+두 영상 모두 TikTok 세로 규격(9:16, 30fps)을 준수한다. `format.duration_sec_range`는 두 값을 포함하는 `[10.7, 12.2]`로 도출했다.
+
+---
+
+## 설계 결정 — 병합 가설 파기
+
+분석 초기의 가설은 "두 레퍼런스를 하나의 프로파일로 병합한다"였다. `analyze --refs ref1.mp4 ref2.mp4 --out biodance.json`처럼 N개 레퍼런스를 받아 공통 스타일을 추출하는 구조다.
+
+그러나 페이싱 수치를 실제로 뽑아보니 이 가설이 틀렸음을 확인했다.
+
+- ref1: ~12컷, ~0.9초/컷 → `fast_montage`
+- ref2: ~4컷, ~2.4초/컷 → `slow_hold`
+
+병합하면 `avg_shot_len_sec ≈ 1.5초`, `cut_count ≈ 8`이 나오는데, 이 값으로 생성한 영상은 ref1처럼 빠르지도 ref2처럼 느리지도 않은 어색한 중간값이 된다. 이것이 **"평균의 함정"** 이다.
+
+결론: 두 레퍼런스는 같은 브랜드의 서로 다른 스타일이므로, 각각 독립 프로파일로 분리해야 각 스타일이 온전히 재현된다. `analyze`는 `--ref` 단수 인수로 변경해 레퍼런스 1개 → 프로파일 1개를 강제했다.
+
+이 결정은 코드 구조에도 반영됐다. `synthesize_profile.py`에는 `merge_pacing()` 같은 다중 레퍼런스 병합 함수가 없다. CLI도 `--ref`(단수)만 받는다.
+
+---
+
+
+
+컷 타임스탬프를 ffmpeg 씬 감지로 추출한 결과:
+
+| 지표 | reference1 | reference2 |
+|---|---|---|
+| 컷 수 | ~12컷 | ~4컷 |
+| 평균 숏 길이 | ~0.9초/컷 | ~2.4초/컷 |
+| 리듬 성격 | fast_montage | slow_hold |
+
+두 레퍼런스는 리듬이 정반대다. ref1은 제품 질감을 빠르게 보여주는 몽타주 스타일이고, ref2는 피부 결과를 천천히 드러내는 호흡 스타일이다.
+
+이 차이가 "두 레퍼런스를 하나로 병합하지 않는다"는 설계 결정의 핵심 근거다. 병합하면 0.9초와 2.4초의 중간값(~1.5초)이 나오는데, 이는 두 스타일 어디에도 해당하지 않는 '평균의 함정'이다. 대신 두 프로파일을 독립적으로 유지하고, 공통 범위(`cut_count_range: [4, 12]`)와 `rhythm_mode: mixed`로 표현해 생성 시 샘플링 공간을 확보했다.
+
+`hook_cut_density: high`는 두 영상 모두 0~3초 구간에 컷이 집중되어 있음을 반영한다.
+
+---
+
+## 비트 시트 패턴
+
+Gemini 비전 분석이 추출한 `narrative.beats` 순서:
+
+| 타임코드 | role | 설명 |
+|---|---|---|
+| 0.0 – 0.9s | `hook` | 제품 질감 클로즈업 — 즉각적 시선 포착 |
+| 0.9 – 2.2s | `application` | 얼굴에 미스트 적용 장면 |
+| 2.2 – 3.7s | `result_glow` | 미스트 후 피부 글로우 결과 |
+| 3.7 – 4.6s | `product_hero` | 제품 보틀 클로즈업 |
+| 4.6 – 6.8s | `application` | 손에 제품 덜어 눈가 적용 |
+| 6.8 – 9.9s | `result_glow` | 전체 페이스 글로우 + 표정 마무리 |
+
+`hook → product_hero → application → result_glow` 순환 구조가 이 스타일의 서사 골격이다. 생성 단계는 이 beat sheet를 기준으로 숏리스트를 구성한다.
+
+---
+
+## 자막 슬롯 패턴
+
+`captions.slots`에는 3종류의 슬롯이 정의되어 있다:
+
+- **title_hook** (`top_center`, `is_hook: true`, 0~4초): 영상 첫 4초를 점유하는 메인 훅 텍스트. `✨` 이모지 포함, 반굵은(semibold) 화이트 소프트 쉐도우 스타일.
+- **subtitle_product** (`top_center`, `is_hook: false`, 0~4초): 제품명을 훅 아래에 서브라인으로 표시.
+- **rolling_caption** (`lower_third` / `bottom_center`, `is_hook: false`, 0~9.9초): 하단 롤링 캡션 4개 슬롯. 각각 0초·4초·5초·7초에 등장해 제품 설명과 CTA를 차례로 전달.
+
+자막 슬롯은 **무슨 말을 할지가 아니라 어디에·언제·어떤 스타일로 뜨느냐**만 규정한다. 실제 문구는 생성 단계의 훅 생성기와 브리프가 채운다.
+
+---
+
+## 오디오 패턴
+
+| 항목 | reference1 | reference2 |
+|---|---|---|
+| 음악 시작 | ~0초 | ~1초 후 인(in) |
+| 목표 LUFS | -23 | -23 |
+| 보이스오버 | 없음(비전 분석 결과 없음) | 없음 |
+
+`music_start_sec: 0.046`은 ref1 기준으로 도출되었다. `target_lufs: -23`은 두 영상의 loudnorm 측정 평균값이다. `has_voiceover: true`는 Gemini가 음성 설명 흔적을 감지해 플래그를 세운 것으로, 실제 TTS 생성 여부는 생성 단계에서 결정된다. `music_mood: upbeat_light_kpop_inspired`는 Gemini 비전 분석 결과다.
+
+---
+
+## 비전 분석 결과
+
+| 항목 | 값 |
+|---|---|
+| 색감(color_grade) | `warm_soft_aesthetic` |
+| 조명(lighting) | `natural_window_soft` |
+| 강조색(accent_color) | `#ED99BE` (소프트 핑크) |
+| 촬영 배경(setting) | `home_interior_daylight` |
+| 크리에이터 수 | 1명 |
+
+비전 분석의 역할은 비주얼 키워드를 Imagen 프롬프트 컨텍스트로 전달하는 것이다. 색감·조명·강조색은 생성 단계의 장면 프롬프트에 자동으로 삽입된다.
+
+---
+
+## biodance.json 도출 근거 요약
+
+| 필드 | 출처 | 도출 방법 |
+|---|---|---|
+| `format.resolution` | ffprobe | 두 영상 동일(576×1024) |
+| `format.duration_sec_range` | ffprobe | [10.7, 12.2] |
+| `pacing.cut_count_range` | ffmpeg 씬 감지 | ref1: ~12컷, ref2: ~4컷 → [4, 12] |
+| `pacing.rhythm_mode` | cut_detect 분류 | 두 영상 리듬이 달라 `mixed` |
+| `pacing.hook_cut_density` | 초반 3초 컷 밀도 계산 | 양쪽 모두 집중 → `high` |
+| `audio.music_start_sec` | ffmpeg loudnorm | ref1 기준 ~0.046초 |
+| `audio.target_lufs` | ffmpeg loudnorm | -23 LUFS |
+| `audio.music_mood` | Gemini 비전 | `upbeat_light_kpop_inspired` |
+| `narrative.beats` | Gemini 비전 | 6개 beat 자동 추출 |
+| `captions.slots` | Gemini 비전 | 6개 슬롯(타이밍·앵커·스타일) |
+| `visual.*` | Gemini 비전 | 색감·조명·강조색·배경 |
+
+---
+
+## 핵심 인사이트
+
+> **스타일 = 비주얼이 아니라 구조다.**
+
+ref1과 ref2는 같은 브랜드(biodance)의 영상이지만 컷 리듬이 정반대다. 그럼에도 두 영상이 "같은 스타일"처럼 느껴지는 이유는 비주얼 색감이 비슷해서가 아니라, **자막이 뜨는 위치·타이밍, 훅이 0초에 시작하는 구조, 훅→제품→적용→결과의 beat sheet 순서**가 동일하기 때문이다.
+
+따라서 이 하네스가 style_profile에서 가장 무게를 두는 필드는 `pacing`, `narrative.beats`, `captions.slots`다. 새로운 브랜드 레퍼런스를 분석할 때도 이 세 구조만 바뀌면 완전히 다른 스타일의 영상이 만들어진다 — 코드 변경 없이.
