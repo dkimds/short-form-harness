@@ -396,9 +396,23 @@ def compose_video(shotlist: dict, profile: dict, run_dir: str) -> str:
 
     shots = shotlist.get("shots", [])
 
-    # --- 1. 클립 로드 ---
-    raw_durations = [float(s.get("duration_sec", 1.0)) for s in shots]
-    adjusted_durations = adjust_durations(raw_durations, duration_min, duration_max)
+    # --- 1. 클립 로드 (실제 duration 확인) ---
+    # VideoFileClip(mp4)은 자체 duration을 쓰므로 먼저 실제 duration을 파악
+    real_durations = []
+    for shot in shots:
+        asset_path = shot.get("asset_path", "")
+        ext = Path(asset_path).suffix.lower() if asset_path else ""
+        if ext in (".mp4", ".mov", ".avi", ".webm") and asset_path and Path(asset_path).exists():
+            try:
+                probe_clip = VideoFileClip(asset_path)
+                real_durations.append(float(probe_clip.duration))
+                probe_clip.close()
+            except Exception:
+                real_durations.append(float(shot.get("duration_sec", 1.0)))
+        else:
+            real_durations.append(float(shot.get("duration_sec", 1.0)))
+
+    adjusted_durations = adjust_durations(real_durations, duration_min, duration_max)
 
     # adjusted_durations might be shorter if clips were trimmed to 0
     n_clips = len(adjusted_durations)
@@ -409,10 +423,13 @@ def compose_video(shotlist: dict, profile: dict, run_dir: str) -> str:
         if dur <= 0:
             continue
         asset_path = shot.get("asset_path", "")
+        ext = Path(asset_path).suffix.lower() if asset_path else ""
         clip = _load_clip(asset_path, dur, ImageClip, VideoFileClip, ColorClip)
         # Resize to 9:16
         clip = _resize_clip(clip, _TARGET_WIDTH, _TARGET_HEIGHT)
-        clip = clip.with_duration(dur)
+        # VideoFileClip은 자체 duration 유지, ImageClip/ColorClip만 shotlist duration 적용
+        if ext not in (".mp4", ".mov", ".avi", ".webm"):
+            clip = clip.with_duration(dur)
         base_clips.append(clip)
 
     if not base_clips:

@@ -467,6 +467,7 @@ def _render_veo_shot(
         mp4_path.parent.mkdir(parents=True, exist_ok=True)
         mp4_path.write_bytes(video_bytes)
         shot["asset_path"] = str(mp4_path)
+        shot["duration_sec"] = 5.0  # Veo 클립은 항상 5초 고정
         logger.info(
             "[assets] veo shot %s: mp4 저장 완료 (%d bytes): %s",
             index,
