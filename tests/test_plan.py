@@ -263,21 +263,16 @@ class TestBuildShotlist:
         for shot in shotlist["shots"]:
             assert shot["asset_path"] == ""
 
-    def test_p0_all_asset_type_imagen_image(self):
-        """product_hero는 veo_i2v, 나머지는 imagen_image (P1 활성화)."""
+    def test_all_shots_veo_i2v(self):
+        """모든 숏의 asset_type은 'veo_i2v'다 (전체 동영상화)."""
         profile = _make_profile()
         shotlist = build_shotlist(
             _make_brief(), profile, "훅", rng=_seeded_rng()
         )
         for shot in shotlist["shots"]:
-            if shot["role"] == "product_hero":
-                assert shot["asset_type"] == "veo_i2v", (
-                    f"product_hero shot should be veo_i2v: {shot}"
-                )
-            else:
-                assert shot["asset_type"] == "imagen_image", (
-                    f"non-hero shot should be imagen_image: {shot}"
-                )
+            assert shot["asset_type"] == "veo_i2v", (
+                f"shot[{shot['index']}] role={shot['role']} asset_type={shot['asset_type']}"
+            )
 
     def test_shot_indices_are_sequential(self):
         shotlist = build_shotlist(
@@ -504,16 +499,11 @@ def test_property_12_shotlist_completeness(profile, brief, seed):
         missing = required_fields - shot.keys()
         assert not missing, f"숏 {shot.get('index')} 에 누락 필드: {missing}"
 
-    # 5. asset_type: product_hero → veo_i2v, others → imagen_image
+    # 5. asset_type: 모든 숏이 veo_i2v (전체 동영상화)
     for shot in shots:
-        if shot["role"] == "product_hero":
-            assert shot["asset_type"] == "veo_i2v", (
-                f"product_hero shot should be veo_i2v: {shot}"
-            )
-        else:
-            assert shot["asset_type"] == "imagen_image", (
-                f"non-hero shot should be imagen_image: {shot}"
-            )
+        assert shot["asset_type"] == "veo_i2v", (
+            f"모든 숏은 veo_i2v여야 함: {shot}"
+        )
 
     # 6. duration_sec 양수
     for shot in shots:
