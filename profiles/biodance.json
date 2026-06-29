@@ -1,8 +1,9 @@
 {
   "meta": {
-    "profile_id": "38e140f6eaf8",
+    "profile_id": "2982d2493118",
     "source_refs": [
-      "refs/reference1.mp4"
+      "refs/reference1.mp4",
+      "refs/reference2.mp4"
     ],
     "extracted_by": "gemini-2.5-flash",
     "genre": "beauty_skincare_ugc_ad"
@@ -13,15 +14,15 @@
     "fps": 30.0,
     "duration_sec_range": [
       10.7,
-      10.7
+      12.168662
     ]
   },
   "pacing": {
     "cut_count_range": [
-      12,
+      4,
       12
     ],
-    "avg_shot_len_sec": 0.8916666666666666,
+    "avg_shot_len_sec": 1.9669160833333332,
     "shot_len_distribution_sec": [
       0.33333300000000055,
       0.36666699999999985,
@@ -30,14 +31,19 @@
       0.433334,
       0.46666600000000047,
       0.4666669999999993,
+      0.7999999999999998,
       0.833333,
       0.9999999999999991,
+      1.233333,
       1.2999999999999998,
       1.3000000000000007,
       1.6,
-      1.733333
+      1.733333,
+      1.866667,
+      4.035328999999999,
+      4.233333
     ],
-    "rhythm_mode": "fast_montage",
+    "rhythm_mode": "mixed",
     "hook_cut_density": "high"
   },
   "captions": {
@@ -48,7 +54,7 @@
         "font_style": "white_semibold_soft_shadow",
         "size_pct": 5.0,
         "appear_sec": 0.0,
-        "duration_sec": 3.7,
+        "duration_sec": 4.0,
         "emoji_palette": [
           "✨"
         ],
@@ -60,17 +66,17 @@
         "font_style": "white_regular_soft_shadow",
         "size_pct": 3.0,
         "appear_sec": 0.0,
-        "duration_sec": 3.7,
+        "duration_sec": 4.0,
         "emoji_palette": [],
         "is_hook": false
       },
       {
         "name": "rolling_caption",
-        "anchor": "bottom_center",
-        "font_style": "white_regular_soft_shadow",
-        "size_pct": 3.0,
+        "anchor": "lower_third",
+        "font_style": "white_semibold_soft_shadow",
+        "size_pct": 4.0,
         "appear_sec": 0.0,
-        "duration_sec": 3.7,
+        "duration_sec": 4.0,
         "emoji_palette": [
           "💖"
         ],
@@ -78,31 +84,31 @@
       },
       {
         "name": "rolling_caption",
-        "anchor": "top_center",
-        "font_style": "white_regular_soft_shadow",
-        "size_pct": 3.0,
+        "anchor": "lower_third",
+        "font_style": "white_semibold_soft_shadow",
+        "size_pct": 4.0,
         "appear_sec": 4.0,
-        "duration_sec": 2.5,
+        "duration_sec": 3.0,
         "emoji_palette": [],
         "is_hook": false
       },
       {
         "name": "rolling_caption",
         "anchor": "bottom_center",
-        "font_style": "white_regular_soft_shadow",
-        "size_pct": 3.0,
-        "appear_sec": 6.0,
-        "duration_sec": 1.5,
+        "font_style": "white_semibold_soft_shadow",
+        "size_pct": 4.0,
+        "appear_sec": 5.0,
+        "duration_sec": 2.0,
         "emoji_palette": [],
         "is_hook": false
       },
       {
         "name": "rolling_caption",
-        "anchor": "top_center",
-        "font_style": "white_regular_soft_shadow",
-        "size_pct": 3.0,
-        "appear_sec": 7.5,
-        "duration_sec": 3.7,
+        "anchor": "lower_third",
+        "font_style": "white_semibold_soft_shadow",
+        "size_pct": 4.0,
+        "appear_sec": 7.0,
+        "duration_sec": 2.9,
         "emoji_palette": [
           "✨"
         ],
@@ -114,8 +120,8 @@
     "music_start_sec": 0.046439909297052155,
     "target_lufs": -23.0,
     "has_voiceover": true,
-    "music_mood": "soft_upbeat_aesthetic",
-    "vo_style": "calm_conversational"
+    "music_mood": "upbeat_light_kpop_inspired",
+    "vo_style": "excited_conversational"
   },
   "overlay": {
     "platform_watermark": "placeholder",
@@ -128,43 +134,50 @@
         "role": "hook",
         "start_sec": 0.0,
         "end_sec": 0.9,
-        "shot_type": "extreme_closeup_hands_jelly",
-        "intent": "Immediately capture attention with a visually intriguing, tactile display of the product's jelly texture."
+        "shot_type": "extreme_closeup_hands_product_play",
+        "intent": "Immediately grab attention with a mesmerizing and tactile interaction with the product's unique jelly texture."
       },
       {
         "role": "application",
         "start_sec": 0.9,
+        "end_sec": 2.2,
+        "shot_type": "medium_closeup_face_mist_application",
+        "intent": "Show the product being applied as a refreshing mist to the face, highlighting ease of use."
+      },
+      {
+        "role": "result_glow",
+        "start_sec": 2.2,
         "end_sec": 3.7,
-        "shot_type": "medium_closeup_face_spray",
-        "intent": "Demonstrate the product's application as a mist for a refreshing and easy user experience."
+        "shot_type": "medium_closeup_face_glowing_skin",
+        "intent": "Demonstrate the immediate dewy and smooth skin effect after mist application."
       },
       {
         "role": "product_hero",
         "start_sec": 3.7,
-        "end_sec": 5.0,
-        "shot_type": "extreme_closeup_product_bottle_texture",
-        "intent": "Showcase the product bottle, highlighting its 'jelly to mist' transformation and branding."
+        "end_sec": 4.6,
+        "shot_type": "closeup_product_bottle_texture_reveal",
+        "intent": "Showcase the product bottle up close, emphasizing the transformation from jelly to mist visually within the container."
       },
       {
         "role": "application",
-        "start_sec": 5.0,
-        "end_sec": 7.0,
-        "shot_type": "closeup_finger_application_under_eye",
-        "intent": "Illustrate another method of application, showing the jelly's melting texture for hydration."
+        "start_sec": 4.6,
+        "end_sec": 6.8,
+        "shot_type": "closeup_hand_dispensing_product_application",
+        "intent": "Illustrate the jelly texture being dispensed onto the finger and gently applied to the under-eye area, showing versatility."
       },
       {
         "role": "result_glow",
-        "start_sec": 7.0,
-        "end_sec": 11.2,
-        "shot_type": "medium_closeup_face_glowing_skin",
-        "intent": "Display the radiant and smooth results on the creator's skin, emphasizing a healthy glow."
+        "start_sec": 6.8,
+        "end_sec": 9.9,
+        "shot_type": "medium_closeup_face_mist_and_glow",
+        "intent": "Reiterate the mist application for a full face glow, culminating in a radiant and happy expression."
       }
     ]
   },
   "visual": {
-    "color_grade": "warm_soft_pastel",
+    "color_grade": "warm_soft_aesthetic",
     "lighting": "natural_window_soft",
-    "accent_color": "#E8A0B8",
+    "accent_color": "#ED99BE",
     "creator_count": 1,
     "setting": "home_interior_daylight"
   }

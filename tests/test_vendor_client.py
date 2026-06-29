@@ -241,6 +241,11 @@ class TestVendorClientAnalyzeVideo:
         mock_file = MagicMock()
         client._client.files.upload.return_value = mock_file
 
+        # Files API 폴링: state.name == "ACTIVE" 를 즉시 반환하도록 설정
+        mock_file_info = MagicMock()
+        mock_file_info.state.name = "ACTIVE"
+        client._client.files.get.return_value = mock_file_info
+
         mock_response = MagicMock()
         mock_response.text = '{"narrative": {"beats": []}}'
         client._client.models.generate_content.return_value = mock_response

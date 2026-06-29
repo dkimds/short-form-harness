@@ -13,7 +13,6 @@ import pytest
 from src.analyze.cut_detect import (
     compute_pacing_metrics,
     detect_cuts,
-    merge_pacing,
 )
 
 
@@ -193,148 +192,37 @@ class TestComputePacingMetrics:
         """반환 dict에 필수 키가 모두 존재한다."""
         m = compute_pacing_metrics([0.0], duration=5.0)
         assert "cut_count" in m
+        assert "cut_count_range" in m
         assert "avg_shot_len_sec" in m
         assert "shot_len_distribution_sec" in m
         assert "hook_cut_density" in m
+        assert "rhythm_mode" in m
 
-
-# ---------------------------------------------------------------------------
-# merge_pacing
-# ---------------------------------------------------------------------------
-
-class TestMergePacing:
-    def _make_metrics(
-        self,
-        cut_count: int,
-        avg_shot_len_sec: float,
-        hook_cut_density: str = "low",
-    ) -> dict:
-        return {
-            "cut_count": cut_count,
-            "avg_shot_len_sec": avg_shot_len_sec,
-            "shot_len_distribution_sec": [avg_shot_len_sec] * cut_count,
-            "hook_cut_density": hook_cut_density,
-        }
-
-    def test_empty_list_returns_defaults(self):
-        """빈 리스트 입력 시 기본값 반환."""
-        result = merge_pacing([])
-        assert result["cut_count_range"] == [0, 0]
-        assert result["rhythm_mode"] == "mixed"
-
-    def test_cut_count_range_covers_all_values(self):
-        """cut_count_range는 모든 관측값을 포괄한다."""
-        per_ref = [
-            self._make_metrics(3, 2.0),
-            self._make_metrics(10, 0.8),
-            self._make_metrics(5, 1.5),
-        ]
-        result = merge_pacing(per_ref)
-        assert result["cut_count_range"][0] == 3
-        assert result["cut_count_range"][1] == 10
-
-    def test_cut_count_range_min_le_max(self):
-        """range[0] ≤ range[1] 불변식."""
-        per_ref = [self._make_metrics(7, 1.0)]
-        result = merge_pacing(per_ref)
-        assert result["cut_count_range"][0] <= result["cut_count_range"][1]
+    def test_cut_count_range_equals_cut_count(self):
+        """단일 레퍼런스이므로 cut_count_range = [cut_count, cut_count]."""
+        m = compute_pacing_metrics([0.0, 1.0, 2.0], duration=5.0)
+        assert m["cut_count_range"] == [m["cut_count"], m["cut_count"]]
 
     def test_rhythm_mode_fast_montage(self):
         """avg_shot_len_sec < 1.5 → fast_montage."""
-        per_ref = [self._make_metrics(10, 0.9)]
-        result = merge_pacing(per_ref)
-        assert result["rhythm_mode"] == "fast_montage"
+        # 10컷, 10초 → avg = 1.0
+        cuts = [0.0] + [i * 1.0 for i in range(1, 11)]
+        m = compute_pacing_metrics(cuts, duration=10.0)
+        assert m["rhythm_mode"] == "fast_montage"
 
     def test_rhythm_mode_slow_hold(self):
         """avg_shot_len_sec > 3.0 → slow_hold."""
-        per_ref = [self._make_metrics(3, 3.5)]
-        result = merge_pacing(per_ref)
-        assert result["rhythm_mode"] == "slow_hold"
+        # 2컷, 10초 → avg = 5.0
+        m = compute_pacing_metrics([0.0, 5.0], duration=10.0)
+        assert m["rhythm_mode"] == "slow_hold"
 
     def test_rhythm_mode_mixed(self):
         """1.5 ≤ avg_shot_len_sec ≤ 3.0 → mixed."""
-        per_ref = [self._make_metrics(5, 2.0)]
-        result = merge_pacing(per_ref)
-        assert result["rhythm_mode"] == "mixed"
+        # 5컷, 10초 → avg = 2.0
+        m = compute_pacing_metrics([0.0, 2.0, 4.0, 6.0, 8.0], duration=10.0)
+        assert m["rhythm_mode"] == "mixed"
 
-    def test_rhythm_mode_boundary_exactly_1_5(self):
-        """avg_shot_len_sec = 1.5 → mixed (fast_montage는 < 1.5)."""
-        per_ref = [self._make_metrics(5, 1.5)]
-        result = merge_pacing(per_ref)
-        assert result["rhythm_mode"] == "mixed"
 
-    def test_rhythm_mode_boundary_exactly_3_0(self):
-        """avg_shot_len_sec = 3.0 → mixed (slow_hold는 > 3.0)."""
-        per_ref = [self._make_metrics(3, 3.0)]
-        result = merge_pacing(per_ref)
-        assert result["rhythm_mode"] == "mixed"
-
-    def test_rhythm_mode_enum_values(self):
-        """rhythm_mode는 세 가지 enum 값 중 하나여야 한다."""
-        valid = {"fast_montage", "slow_hold", "mixed"}
-        for avg in [0.5, 1.4, 1.5, 2.0, 3.0, 3.1, 5.0]:
-            result = merge_pacing([self._make_metrics(5, avg)])
-            assert result["rhythm_mode"] in valid
-
-    def test_avg_shot_len_sec_is_mean(self):
-        """avg_shot_len_sec는 입력들의 평균이다."""
-        per_ref = [
-            self._make_metrics(5, 1.0),
-            self._make_metrics(5, 3.0),
-        ]
-        result = merge_pacing(per_ref)
-        assert result["avg_shot_len_sec"] == pytest.approx(2.0)
-
-    def test_shot_len_distribution_sorted(self):
-        """shot_len_distribution_sec는 정렬되어 있다."""
-        per_ref = [
-            self._make_metrics(2, 3.0),
-            self._make_metrics(3, 1.0),
-        ]
-        result = merge_pacing(per_ref)
-        dist = result["shot_len_distribution_sec"]
-        assert dist == sorted(dist)
-
-    def test_hook_density_mode_high_wins(self):
-        """최빈값이 동률일 때 high > medium > low 우선."""
-        per_ref = [
-            self._make_metrics(5, 1.0, "high"),
-            self._make_metrics(5, 1.0, "medium"),
-        ]
-        result = merge_pacing(per_ref)
-        # 동률이면 high 우선
-        assert result["hook_cut_density"] == "high"
-
-    def test_hook_density_majority_wins(self):
-        """최빈값이 명확하면 그 값을 반환한다."""
-        per_ref = [
-            self._make_metrics(5, 2.0, "low"),
-            self._make_metrics(5, 2.0, "low"),
-            self._make_metrics(5, 2.0, "high"),
-        ]
-        result = merge_pacing(per_ref)
-        assert result["hook_cut_density"] == "low"
-
-    def test_hook_density_valid_values(self):
-        """hook_cut_density는 세 가지 값 중 하나."""
-        valid = {"high", "medium", "low"}
-        for density in ["high", "medium", "low"]:
-            result = merge_pacing([self._make_metrics(5, 2.0, density)])
-            assert result["hook_cut_density"] in valid
-
-    def test_single_ref_passthrough(self):
-        """레퍼런스 1개면 해당 값이 그대로 반영된다."""
-        per_ref = [self._make_metrics(8, 0.9, "high")]
-        result = merge_pacing(per_ref)
-        assert result["cut_count_range"] == [8, 8]
-        assert result["avg_shot_len_sec"] == pytest.approx(0.9)
-        assert result["hook_cut_density"] == "high"
-
-    def test_returns_required_keys(self):
-        """반환 dict에 필수 키가 모두 존재한다."""
-        result = merge_pacing([self._make_metrics(5, 2.0)])
-        assert "cut_count_range" in result
-        assert "avg_shot_len_sec" in result
-        assert "shot_len_distribution_sec" in result
-        assert "rhythm_mode" in result
-        assert "hook_cut_density" in result
+# ---------------------------------------------------------------------------
+# merge_pacing — 삭제됨. 1 ref → 1 JSON 설계로 변경.
+# ---------------------------------------------------------------------------
