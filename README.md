@@ -17,6 +17,9 @@
 ## 빠른 시작
 
 ```bash
+# 시스템 의존성 (ffmpeg — ffprobe 포함)
+brew bundle install
+
 # 환경 설정
 cp .env.example .env
 # .env에 GOOGLE_API_KEY 입력
@@ -24,6 +27,8 @@ cp .env.example .env
 # 의존성 설치 (pyproject.toml / uv.lock 기준)
 uv sync
 ```
+
+> `probe.py`/`cut_detect.py`/`audio_stats.py`/`gate.py`가 `ffmpeg`/`ffprobe`를 PATH에서 직접 subprocess로 호출하므로 ffmpeg 설치가 필수다(moviepy가 pip으로 받는 내장 ffmpeg와는 별개). `pytest`는 이 호출들을 모킹하므로 ffmpeg 없이도 통과하지만, `analyze`/`generate` 실전 실행에는 반드시 필요하다. ImageMagick·libsndfile·별도 폰트는 필요 없다 — moviepy 2.x `TextClip`은 PIL 기반이고 `soundfile`은 libsndfile을 휠에 번들한다.
 
 ---
 
