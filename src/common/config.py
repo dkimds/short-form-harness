@@ -24,7 +24,7 @@ class Config:
 
     Attributes:
         google_api_key: Google AI Studio API 키. 필수.
-        gemini_model: Gemini 모델 식별자. 기본값 "gemini-2.0-flash".
+        gemini_model: Gemini 모델 식별자. 기본값 "gemini-2.5-flash".
         imagen_model: 이미지 생성 모델 식별자. 기본값 "gemini-2.5-flash-image"
             (Nano Banana). Imagen 전용 API(generate_images)가 아니라 Gemini의
             generate_content 이미지 응답 모달리티를 사용한다 — Imagen과 별도
@@ -57,7 +57,7 @@ def load_config() -> Config:
     Example::
 
         config = load_config()
-        print(config.gemini_model)  # "gemini-2.0-flash"
+        print(config.gemini_model)  # "gemini-2.5-flash"
     """
     # .env 파일이 있으면 환경 변수로 로드 (이미 설정된 값은 덮어쓰지 않음)
     load_dotenv()
