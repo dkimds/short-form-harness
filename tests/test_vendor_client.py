@@ -163,7 +163,8 @@ class TestVendorClientImageToVideo:
         assert source_arg.prompt == "my prompt"
         # config에 올바른 값들이 전달됨을 확인
         config_arg = call_kwargs["config"]
-        assert config_arg.duration_seconds == 5  # int로 변환
+        # Veo는 4/6/8초만 허용 — 5.0은 4와 6에 동거리이므로 먼저 나열된 4로 스냅
+        assert config_arg.duration_seconds == 4
         assert config_arg.aspect_ratio == "9:16"
         assert config_arg.number_of_videos == 1
 
@@ -220,8 +221,8 @@ class TestVendorClientImageToVideo:
             with pytest.raises(VendorError):
                 client.image_to_video(b"img", "prompt", duration_sec=3.0)
 
-    def test_duration_converted_to_int(self):
-        """duration_sec은 5~8초로 클램프되어 Veo config에 전달된다."""
+    def test_duration_snapped_to_nearest_allowed_value(self):
+        """duration_sec은 Veo가 허용하는 4/6/8초 중 가장 가까운 값으로 스냅된다."""
         client = _make_client()
         operation = self._make_veo_operation(done=True)
         client._client.models.generate_videos.return_value = operation
@@ -229,7 +230,7 @@ class TestVendorClientImageToVideo:
         client.image_to_video(b"img", "prompt", duration_sec=3.7)
 
         config_arg = client._client.models.generate_videos.call_args.kwargs["config"]
-        assert config_arg.duration_seconds == 5  # 3.7 → clamp to 5 (Veo min)
+        assert config_arg.duration_seconds == 4  # 3.7 → 가장 가까운 허용값 4
 
 
 # ---------------------------------------------------------------------------

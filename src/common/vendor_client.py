@@ -326,7 +326,8 @@ class VendorClient:
                 config=genai_types.GenerateVideosConfig(
                     aspect_ratio="9:16",
                     number_of_videos=1,
-                    duration_seconds=max(5, min(8, int(duration_sec))),  # Veo: 5~8초 범위
+                    # Veo는 4/6/8초 중 하나만 허용 (5·7초 등 다른 정수는 400 INVALID_ARGUMENT)
+                    duration_seconds=min((4, 6, 8), key=lambda allowed: abs(allowed - duration_sec)),
                 ),
             )
             # 완료될 때까지 폴링 (최대 150초 = 30회 × 5초)
