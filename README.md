@@ -105,7 +105,7 @@ short-form-harness/
     hook_gen.py         → Gemini (temperature≥0.8, seed 랜덤) → 훅 텍스트
               │
               ▼
-    plan.py             → beat sheet → shotlist (컷 수 샘플링, 비율 배분)
+    plan.py             → beat sheet → shotlist (1 beat = 1 shot 고정 매칭)
               │
               ▼
     assets.py           → Imagen 이미지 / Veo i2v / TTS 보이스오버

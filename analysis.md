@@ -136,3 +136,27 @@ Gemini 비전 분석이 추출한 `narrative.beats` 순서:
 ref1과 ref2는 같은 브랜드(biodance)의 영상이지만 컷 리듬이 정반대다. 그럼에도 두 영상이 "같은 스타일"처럼 느껴지는 이유는 비주얼 색감이 비슷해서가 아니라, **자막이 뜨는 위치·타이밍, 훅이 0초에 시작하는 구조, 훅→제품→적용→결과의 beat sheet 순서**가 동일하기 때문이다.
 
 따라서 이 하네스가 style_profile에서 가장 무게를 두는 필드는 `pacing`, `narrative.beats`, `captions.slots`다. 새로운 브랜드 레퍼런스를 분석할 때도 이 세 구조만 바뀌면 완전히 다른 스타일의 영상이 만들어진다 — 코드 변경 없이.
+
+---
+
+## 구조적 인사이트 — pacing과 narrative는 서로 다른 것을 측정한다
+
+`ref1.json`(`pacing.cut_count_range: [12, 12]`, `narrative.beats`: 7개)으로 생성해보니 Gate의 비전 판정이 실패했다:
+
+```
+"Visual Style Match: Fail - The video contains 5 distinct narrative scenes/cuts,
+ which does not match the expected beat count of 7."
+```
+
+원인을 추적하니 `plan.py`의 설계 자체가 두 필드의 성격을 혼동하고 있었다. `cut_count_range`(12)를 총 컷 수로 샘플링한 뒤, 이를 7개 beat에 비율로 배분하면 일부 beat가 2~3컷을 받는다. 그런데 같은 beat 안의 컷들은 `_build_prompt_text()`가 만드는 프롬프트가 완전히 동일하므로, 실질적으로 "똑같은 장면"이 여러 번 반복될 뿐이다. AI 비전은 이걸 하나의 scene으로 병합해서 세므로, shotlist에 12개 샷이 있어도 distinct scene은 5개로 관측됐다.
+
+**여기서 확인한 것: `pacing.cut_count_range`와 `narrative.beats`는 서로 다른 측정 축이다.**
+
+- `cut_count_range`는 ffmpeg 씬 감지로 뽑은 **리듬 지표**다 — "이 레퍼런스는 몇 번 화면이 바뀌는가"라는 순수 관찰값.
+- `narrative.beats`는 Gemini 비전이 뽑은 **서사 구조**다 — "이 레퍼런스가 어떤 의미 단위로 나뉘는가"라는 해석값.
+
+두 값은 같은 영상에서 나왔지만 독립적으로 추출된 별개의 신호다(ref1 실측: beats 7개, 컷 12개 — 애초에 1:1이 아니었다). 그런데 생성 단계는 이 둘을 "총 컷 수를 beat에 배분한다"는 절차로 강제 결합했다. 리듬 지표를 서사 구조에 억지로 끼워 넣는 순간, 프롬프트가 없는 "빈 배분"이 생기고 그게 중복 프롬프트로 채워지면서 구조가 깨졌다.
+
+**해결 방향은 결합을 끊는 것이었다.** `narrative.beats`를 유일한 샷 생성 출처로 삼아 1 beat = 1 shot으로 고정하고(`build_shotlist()`), `cut_count_range`는 생성에 관여하지 않는 분석 메타데이터로 남겼다. 레퍼런스의 빠른 리듬(12컷)을 실제로 재현하려면 beats 자체를 12개로 세분화해야 한다 — 즉 리듬을 표현하는 단위는 "같은 beat 안의 컷 수"가 아니라 "beat의 개수와 길이"여야 한다.
+
+이건 앞선 "스타일 = 비주얼이 아니라 구조다"라는 핵심 인사이트의 연장선이다. narrative.beats가 스토리의 골격이라면, pacing은 그 골격을 얼마나 빠르게 넘기는지에 대한 별도의 관찰이지 골격을 쪼개는 규칙이 될 수 없다. 두 축을 분리해야 각자의 의미가 유지된다.
