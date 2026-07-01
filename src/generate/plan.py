@@ -59,7 +59,12 @@ def _build_prompt_text(beat: dict, profile: dict, brief: dict) -> str:
 
     형식:
     "9:16 vertical short-form beauty video frame: {shot_type}, {intent}.
-     Style: {color_grade}, {lighting}. Subject: {product_subject}."
+     Style: {color_grade}, {lighting}. Setting: {setting}. Subject: {product_subject}."
+
+    setting(visual.setting, 예: "home_interior_daylight_plant_background")이
+    분석 단계에서 추출되지만 기존에는 프롬프트에 반영되지 않았다 — "권장 - 배경"
+    항목을 충족하기 위해 Setting 절을 별도로 추가한다. Style(색감·조명)과는
+    다른 축(장면의 물리적 환경)이라 별도 문구로 분리했다.
 
     Args:
         beat: narrative.beats 항목
@@ -76,6 +81,7 @@ def _build_prompt_text(beat: dict, profile: dict, brief: dict) -> str:
     color_grade = visual.get("color_grade", "warm_soft_pastel")
     lighting = visual.get("lighting", "natural_window_soft")
     accent_color = visual.get("accent_color", "")
+    setting = visual.get("setting", "")
 
     user_input = brief.get("user_input", {})
     product_subject = user_input.get("value", "beauty product")
@@ -88,10 +94,16 @@ def _build_prompt_text(beat: dict, profile: dict, brief: dict) -> str:
         style_parts.append(f"accent {accent_color}")
     style_str = ", ".join(style_parts)
 
+    # setting은 snake_case로 저장되어 있으므로 프롬프트에서는 읽기 쉽게 공백으로 치환
+    setting_str = setting.replace("_", " ") if setting else ""
+
     prompt = (
         f"9:16 vertical short-form beauty video frame: {shot_type}, {intent}. "
-        f"Style: {style_str}. Subject: {product_subject}."
+        f"Style: {style_str}. "
     )
+    if setting_str:
+        prompt += f"Setting: {setting_str}. "
+    prompt += f"Subject: {product_subject}."
     return prompt
 
 

@@ -138,6 +138,23 @@ class TestBuildPromptText:
         result = _build_prompt_text(beat, _make_profile(), _make_brief())
         assert "9:16" in result
 
+    def test_contains_setting_when_present(self):
+        """visual.setting이 있으면 Setting 절이 프롬프트에 포함된다 (권장 - 배경)."""
+        beat = self._make_beat()
+        profile = _make_profile()
+        profile["visual"]["setting"] = "home_interior_daylight_plant_background"
+        result = _build_prompt_text(beat, profile, _make_brief())
+        assert "Setting:" in result
+        # snake_case가 읽기 쉬운 공백 구분 문자열로 치환되어야 함
+        assert "home interior daylight plant background" in result
+
+    def test_omits_setting_section_when_absent(self):
+        """visual.setting이 없으면 Setting 절이 프롬프트에 포함되지 않는다."""
+        beat = self._make_beat()
+        profile = _make_profile()  # setting 필드 없음
+        result = _build_prompt_text(beat, profile, _make_brief())
+        assert "Setting:" not in result
+
 
 # ---------------------------------------------------------------------------
 # build_shotlist 단위 테스트
