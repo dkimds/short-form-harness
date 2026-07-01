@@ -104,6 +104,7 @@ retro.md (작성 중 — 작업하며 채워간다)
 - 떡밥 1 (SDK 선택): `google-generativeai`(deprecated) 대신 신 SDK `google-genai` 채택. → 예상 질문: "왜 신 SDK?" → 답: deprecated 경고 + future-proof + Files API 통합이 mp4 업로드(분석 단계)에 자연스러움.
 - 떡밥 2 (단일 벤더 lock-in): Gemini 단일 벤더 → vendor_client.py 한 곳에 격리해 OpenAI/Runway 교체 가능하게 추상화. → 예상 질문: "lock-in 위험?" → 답 준비됨.
 - 떡밥 3 (음악 단순화): 음악 선택을 mood 단어 교집합 스코어링으로 단순화했다. cosine similarity나 임베딩 기반 매칭이 더 정확하지만, mood 문자열이 `_`로 분리된 영어 키워드 형태여서 단어 교집합으로 충분히 의미 있는 매칭이 가능하다고 판단. → 예상 질문: "더 정교한 매칭은?" → 임베딩 기반 방식과 트레이드오프 설명 가능.
+- 떡밥 4 (image/video 입력 단순화): `--input`이 text/image/video 세 종류를 받지만, 실제로는 셋 다 동일한 파이프라인(Imagen→Veo i2v)을 타고 image/video는 파일 내용을 읽지 않고 파일명(stem)만 프롬프트의 Subject로 치환한다(`plan.py`의 `product_subject` 추출, `hook_gen.py`도 동일). 원래 설계는 이미지 입력 시 Imagen 대신 image-to-image로 그 이미지를 직접 활용하고, 영상 입력 시 프레임 추출 등 별도 처리를 하는 것이었으나, 제출 기한 안에서 우선순위가 아니라고 판단해 세 입력을 "프롬프트 텍스트 소스"로 통일했다. → 예상 질문: "이미지 넣으면 그 이미지가 실제로 쓰이나요?" → 답: 아니요, 현재는 파일명만 텍스트로 활용하는 단순화된 구현이고, image-to-image/영상 프레임 추출은 다음 우선순위로 명확히 알고 있다(트레이드오프 인지 후 시간 제약으로 스코프 축소).
 
 
 <!--

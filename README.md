@@ -40,12 +40,6 @@ uv run python cli.py analyze --ref refs/reference1.mp4 --out profiles/biodance.j
 
 # 생성 — 텍스트 입력
 uv run python cli.py generate --profile profiles/biodance.json --input "glow serum"
-
-# 생성 — 이미지 입력
-uv run python cli.py generate --profile profiles/biodance.json --input image.png
-
-# 생성 — 영상 입력
-uv run python cli.py generate --profile profiles/biodance.json --input video.mp4
 ```
 
 > 레퍼런스는 분석에만 사용한다. 생성 단계는 `profiles/*.json`만 읽으며 레퍼런스 mp4를 직접 참조하지 않는다.
