@@ -457,6 +457,28 @@ class TestVendorClientGenerateImage:
             with pytest.raises(VendorError):
                 client.generate_image("프롬프트", aspect_ratio="9:16")
 
+    def test_reference_image_included_when_provided(self):
+        """reference_image가 주어지면 contents에 이미지 파트가 함께 포함된다."""
+        client = _make_client()
+        client._client.models.generate_content.return_value = _mock_image_response(b"bytes")
+
+        client.generate_image(
+            "테스트 프롬프트", aspect_ratio="9:16", reference_image=b"\xff\xd8\xff"
+        )
+        call_kwargs = client._client.models.generate_content.call_args
+        contents = call_kwargs.kwargs["contents"]
+        assert len(contents) == 2
+        assert contents[0] == "테스트 프롬프트"
+
+    def test_reference_image_omitted_when_none(self):
+        """reference_image가 None이면 contents에는 프롬프트 텍스트만 포함된다."""
+        client = _make_client()
+        client._client.models.generate_content.return_value = _mock_image_response(b"bytes")
+
+        client.generate_image("테스트 프롬프트", aspect_ratio="9:16", reference_image=None)
+        call_kwargs = client._client.models.generate_content.call_args
+        assert call_kwargs.kwargs["contents"] == ["테스트 프롬프트"]
+
 
 # ---------------------------------------------------------------------------
 # synthesize_speech 폴백 테스트

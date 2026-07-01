@@ -40,9 +40,15 @@ uv run python cli.py analyze --ref refs/reference1.mp4 --out profiles/biodance.j
 
 # 생성 — 텍스트 입력
 uv run python cli.py generate --profile profiles/biodance.json --input "glow serum"
+
+# 생성 — 크리에이터(인물) 참조 사진 포함 (선택)
+uv run python cli.py generate --profile profiles/biodance.json --input "glow serum" \
+  --creator-photo creator.jpg
 ```
 
 > 레퍼런스는 분석에만 사용한다. 생성 단계는 `profiles/*.json`만 읽으며 레퍼런스 mp4를 직접 참조하지 않는다.
+
+> `--creator-photo`는 `--input`과 독립적인 선택 입력이다. `--input`은 제품/주제를 나타내고, `--creator-photo`는 hook·application 장면 생성 시 인물 일관성을 유지하기 위한 참조 이미지로만 쓰인다.
 
 ---
 

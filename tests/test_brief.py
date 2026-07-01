@@ -194,8 +194,72 @@ def test_build_brief_video_valid_mov(sample_profile, tmp_path):
     vid_file = tmp_path / "clip.mov"
     vid_file.write_bytes(b"\x00\x00\x00\x08wide")
     ui = UserInput(kind="video", value=str(vid_file))
+    build_brief(sample_profile, ui)  # 예외 없이 통과해야 함
+
+
+# ---------------------------------------------------------------------------
+# creator_photo_path — 크리에이터(인물) 참조 사진 검증
+# ---------------------------------------------------------------------------
+
+def test_build_brief_without_creator_photo_defaults_to_empty(sample_profile):
+    """creator_photo_path를 지정하지 않으면 brief["creator_photo_path"]는 빈 문자열이다."""
+    ui = UserInput(kind="text", value="글로우 세럼")
     brief = build_brief(sample_profile, ui)
-    assert brief["user_input"]["kind"] == "video"
+    assert brief["creator_photo_path"] == ""
+
+
+def test_build_brief_with_valid_creator_photo(sample_profile, tmp_path):
+    """유효한 creator_photo_path는 brief에 그대로 기록된다."""
+    photo = tmp_path / "creator.jpg"
+    photo.write_bytes(b"\xff\xd8\xff")
+    ui = UserInput(kind="text", value="글로우 세럼")
+    brief = build_brief(sample_profile, ui, creator_photo_path=str(photo))
+    assert brief["creator_photo_path"] == str(photo)
+
+
+def test_build_brief_creator_photo_nonexistent_raises(sample_profile, tmp_path):
+    """존재하지 않는 creator_photo_path는 InputError를 발생시켜야 한다."""
+    missing = tmp_path / "nonexistent.jpg"
+    ui = UserInput(kind="text", value="글로우 세럼")
+    with pytest.raises(InputError) as exc_info:
+        build_brief(sample_profile, ui, creator_photo_path=str(missing))
+    assert exc_info.value.kind == "creator_photo"
+
+
+def test_build_brief_creator_photo_unsupported_extension_raises(sample_profile, tmp_path):
+    """지원하지 않는 확장자(mp4)의 creator_photo_path는 InputError를 발생시켜야 한다."""
+    bad_file = tmp_path / "creator.mp4"
+    bad_file.write_bytes(b"\x00\x00\x00\x20ftyp")
+    ui = UserInput(kind="text", value="글로우 세럼")
+    with pytest.raises(InputError) as exc_info:
+        build_brief(sample_profile, ui, creator_photo_path=str(bad_file))
+    assert exc_info.value.kind == "creator_photo"
+
+
+def test_write_prompt_txt_contains_creator_photo_path(sample_profile, tmp_path):
+    """prompt.txt는 creator_photo_path가 있으면 이를 기록해야 한다."""
+    photo = tmp_path / "creator.jpg"
+    photo.write_bytes(b"\xff\xd8\xff")
+    ui = UserInput(kind="text", value="테스트 제품")
+    brief = build_brief(sample_profile, ui, creator_photo_path=str(photo))
+    brief["run_dir"] = str(tmp_path)
+
+    write_prompt_txt(brief, "훅 텍스트", str(tmp_path))
+
+    content = (tmp_path / "prompt.txt").read_text(encoding="utf-8")
+    assert str(photo) in content
+
+
+def test_write_prompt_txt_without_creator_photo_shows_placeholder(sample_profile, tmp_path):
+    """creator_photo_path가 없으면 prompt.txt에 '(없음)' 표시가 있어야 한다."""
+    ui = UserInput(kind="text", value="테스트 제품")
+    brief = build_brief(sample_profile, ui)
+    brief["run_dir"] = str(tmp_path)
+
+    write_prompt_txt(brief, "훅 텍스트", str(tmp_path))
+
+    content = (tmp_path / "prompt.txt").read_text(encoding="utf-8")
+    assert "(없음)" in content
 
 
 # ---------------------------------------------------------------------------

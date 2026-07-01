@@ -145,11 +145,22 @@ def cmd_generate(args: argparse.Namespace, config: Config, client: VendorClient)
 
     # ── 3. UserInput + build_brief ─────────────────────────────────────────
     user_input = UserInput(kind=kind, value=input_value)
+    creator_photo_path: str | None = args.creator_photo
     try:
-        brief = build_brief(profile, user_input, profile_path=args.profile)
+        brief = build_brief(
+            profile,
+            user_input,
+            profile_path=args.profile,
+            creator_photo_path=creator_photo_path,
+        )
     except InputError as exc:
         print(f"입력 오류: {exc}", file=sys.stderr)
         sys.exit(1)
+
+    # 크리에이터 사진 바이트를 미리 로드 (매 run에서 재사용)
+    creator_photo_bytes: bytes | None = None
+    if creator_photo_path:
+        creator_photo_bytes = Path(creator_photo_path).read_bytes()
 
     runs: int = args.runs
     completed = 0
@@ -180,7 +191,13 @@ def cmd_generate(args: argparse.Namespace, config: Config, client: VendorClient)
             )
 
             # ── 7. 에셋 생성 ──────────────────────────────────────────────
-            shotlist = render_assets(client, shotlist, profile_with_hook, run_dir)
+            shotlist = render_assets(
+                client,
+                shotlist,
+                profile_with_hook,
+                run_dir,
+                creator_photo=creator_photo_bytes,
+            )
 
             # ── 8. 영상 합성 ──────────────────────────────────────────────
             final_mp4_path = compose_video(shotlist, profile_with_hook, run_dir)
@@ -287,6 +304,15 @@ def _build_parser() -> argparse.ArgumentParser:
         required=True,
         metavar="TEXT_OR_PATH",
         help="생성 입력. 텍스트 문자열 또는 이미지/영상 파일 경로.",
+    )
+    generate_parser.add_argument(
+        "--creator-photo",
+        default=None,
+        metavar="IMAGE",
+        help=(
+            "크리에이터(인물) 참조 사진 경로 (선택, jpg/jpeg/png). "
+            "주어지면 hook·application 장면 생성 시 인물 일관성 유지에 사용됩니다."
+        ),
     )
     generate_parser.add_argument(
         "--runs",

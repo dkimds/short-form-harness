@@ -180,6 +180,54 @@ class TestRenderAssetsBasic:
 
 
 # ---------------------------------------------------------------------------
+# render_assets: 크리에이터(인물) 참조 사진 테스트
+# ---------------------------------------------------------------------------
+
+class TestRenderAssetsCreatorPhoto:
+    def test_reference_image_none_by_default(self, tmp_path):
+        """creator_photo를 지정하지 않으면 reference_image는 None으로 호출된다."""
+        client = _make_client()
+        shotlist = _make_shotlist(2)  # role: hook, application
+        render_assets(client, shotlist, _make_profile(), str(tmp_path))
+        for c in client.generate_image.call_args_list:
+            assert c.kwargs["reference_image"] is None
+
+    def test_reference_image_passed_for_hook_and_application(self, tmp_path):
+        """creator_photo가 있으면 hook·application role의 shot에 reference_image로 전달된다."""
+        client = _make_client()
+        shotlist = _make_shotlist(2)  # role: hook, application
+        photo_bytes = b"\xff\xd8\xff\xfake-jpeg"
+        render_assets(
+            client, shotlist, _make_profile(), str(tmp_path), creator_photo=photo_bytes
+        )
+        for c in client.generate_image.call_args_list:
+            assert c.kwargs["reference_image"] == photo_bytes
+
+    def test_reference_image_not_passed_for_other_roles(self, tmp_path):
+        """creator_photo가 있어도 hook·application이 아닌 role에는 전달되지 않는다."""
+        client = _make_client()
+        shotlist = {
+            "run_id": "test_run",
+            "shots": [
+                {
+                    "index": 0,
+                    "role": "product_hero",
+                    "asset_type": "imagen_image",
+                    "duration_sec": 1.0,
+                    "prompt": "product hero shot",
+                    "asset_path": "",
+                }
+            ],
+        }
+        photo_bytes = b"\xff\xd8\xff\xfake-jpeg"
+        render_assets(
+            client, shotlist, _make_profile(), str(tmp_path), creator_photo=photo_bytes
+        )
+        _, kwargs = client.generate_image.call_args
+        assert kwargs["reference_image"] is None
+
+
+# ---------------------------------------------------------------------------
 # render_assets: 폴백 이미지 테스트
 # ---------------------------------------------------------------------------
 

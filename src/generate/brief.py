@@ -32,6 +32,9 @@ _SUPPORTED_IMAGE_EXTS = frozenset({".jpg", ".jpeg", ".png"})
 _SUPPORTED_VIDEO_EXTS = frozenset({".mp4", ".mov"})
 _ALL_SUPPORTED_EXTS = _SUPPORTED_IMAGE_EXTS | _SUPPORTED_VIDEO_EXTS
 
+# 크리에이터(인물) 참조 사진은 이미지 형식만 허용 (동영상 미지원)
+_SUPPORTED_CREATOR_PHOTO_EXTS = _SUPPORTED_IMAGE_EXTS
+
 
 # ---------------------------------------------------------------------------
 # 데이터클래스
@@ -59,6 +62,7 @@ def build_brief(
     user_input: UserInput,
     *,
     profile_path: str = "",
+    creator_photo_path: str | None = None,
 ) -> dict:
     """style_profile과 UserInput을 결합해 브리프 dict를 생성한다.
 
@@ -70,6 +74,10 @@ def build_brief(
       - 확장자가 지원 형식(jpg/jpeg/png/mp4/mov)인지 검증
       - 검증 실패 시 InputError raise
 
+    creator_photo_path가 주어지면(선택, "권장 - 크리에이터" 항목) 별도로
+    파일 존재 여부·형식(jpg/jpeg/png)을 검증한다. user_input과는 독립적인
+    입력이며, --input이 제품/주제를 나타내는 의미를 바꾸지 않는다.
+
     반환된 brief의 run_dir 필드는 caller가 설정한다.
 
     Args:
@@ -78,18 +86,26 @@ def build_brief(
         user_input: UserInput 인스턴스 (kind + value).
         profile_path: 입력 프로파일 JSON 파일의 경로 (선택, 기본값: "").
                       write_prompt_txt에서 기록에 사용된다.
+        creator_photo_path: 크리에이터(인물) 참조 사진 경로 (선택, 기본값: None).
+                      주어지면 hook·application 장면 생성 시 인물 일관성
+                      유지를 위한 참조 이미지로 사용된다.
 
     Returns:
         브리프 dict — 키: user_input, narrative, captions, visual, pacing,
-                         run_dir, profile_path
+                         run_dir, profile_path, creator_photo_path
 
     Raises:
         InputError: image/video 입력이 유효하지 않을 때
-                    (파일 없음 또는 지원하지 않는 형식).
+                    (파일 없음 또는 지원하지 않는 형식), 또는
+                    creator_photo_path가 유효하지 않을 때.
     """
     # image/video 입력 검증
     if user_input.kind in ("image", "video"):
         _validate_file_input(user_input)
+
+    # 크리에이터 사진 검증 (선택적 입력)
+    if creator_photo_path:
+        _validate_creator_photo(creator_photo_path)
 
     brief: dict = {
         "user_input": {
@@ -103,12 +119,14 @@ def build_brief(
         # caller가 설정하는 필드
         "run_dir": "",
         "profile_path": profile_path,
+        "creator_photo_path": creator_photo_path or "",
     }
 
     logger.info(
-        "[brief] 브리프 생성 완료: kind=%s, value=%.40s",
+        "[brief] 브리프 생성 완료: kind=%s, value=%.40s, creator_photo=%s",
         user_input.kind,
         user_input.value,
+        bool(creator_photo_path),
     )
     return brief
 
@@ -139,6 +157,7 @@ def write_prompt_txt(brief: dict, hook_text: str, run_dir: str) -> None:
 
     user_input = brief.get("user_input", {})
     profile_path = brief.get("profile_path", "")
+    creator_photo_path = brief.get("creator_photo_path", "")
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     lines = [
@@ -152,6 +171,7 @@ def write_prompt_txt(brief: dict, hook_text: str, run_dir: str) -> None:
         "사용자 입력",
         f"  kind  : {user_input.get('kind', '')}",
         f"  value : {user_input.get('value', '')}",
+        f"  creator_photo : {creator_photo_path or '(없음)'}",
         "-" * 60,
         "생성된 훅 텍스트",
         f"  {hook_text}",
@@ -207,4 +227,34 @@ def _validate_file_input(user_input: UserInput) -> None:
             f"  해결: 경로가 올바른지, 파일이 존재하는지 확인하세요.",
             path=str(path),
             kind=user_input.kind,
+        )
+
+
+def _validate_creator_photo(creator_photo_path: str) -> None:
+    """크리에이터(인물) 참조 사진의 존재 여부 및 형식을 검증한다.
+
+    Args:
+        creator_photo_path: 검증할 이미지 파일 경로.
+
+    Raises:
+        InputError: 파일이 존재하지 않거나 지원하지 않는 형식일 때.
+    """
+    path = Path(creator_photo_path)
+    ext = path.suffix.lower()
+
+    if ext not in _SUPPORTED_CREATOR_PHOTO_EXTS:
+        raise InputError(
+            f"지원하지 않는 크리에이터 사진 형식입니다: '{path.name}' (확장자: {ext!r})\n"
+            f"  지원 형식: {', '.join(sorted(_SUPPORTED_CREATOR_PHOTO_EXTS))} (jpg/jpeg/png)\n"
+            f"  해결: 지원되는 형식의 이미지 파일로 다시 시도하세요.",
+            path=str(path),
+            kind="creator_photo",
+        )
+
+    if not path.exists():
+        raise InputError(
+            f"크리에이터 사진 파일을 찾을 수 없습니다: {path.resolve()}\n"
+            f"  해결: --creator-photo 경로가 올바른지 확인하세요.",
+            path=str(path),
+            kind="creator_photo",
         )

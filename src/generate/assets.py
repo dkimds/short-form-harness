@@ -44,6 +44,10 @@ _DEFAULT_VOICE = "ko-KR-Standard-A"
 # 폴백 프롬프트 최대 길이
 _MAX_PROMPT_CHARS = 60
 
+# 크리에이터(인물) 참조 사진을 적용할 role. plan.py의 _VEO_ROLES와 동일한
+# 경계를 따른다 — 인물 비중이 높은 장면에만 참조 이미지를 적용한다.
+_CREATOR_PHOTO_ROLES = {"hook", "application"}
+
 
 # ---------------------------------------------------------------------------
 # 내부 헬퍼
@@ -256,6 +260,7 @@ def render_assets(
     run_dir: str,
     *,
     voice: str = _DEFAULT_VOICE,
+    creator_photo: bytes | None = None,
 ) -> dict:
     """에셋 생성: 모든 imagen_image 및 veo_i2v 숏에 대해 에셋을 생성하고,
     has_voiceover=True이면 TTS 보이스오버를 생성한다.
@@ -270,12 +275,18 @@ def render_assets(
     5. profile.audio.has_voiceover == True이면 client.synthesize_speech를 호출해
        run_dir/voiceover.wav에 저장한다.
 
+    creator_photo가 주어지면(선택, "권장 - 크리에이터" 항목) role이 hook 또는
+    application인 shot의 이미지 생성 시 참조 이미지로 함께 전달해 인물 일관성을
+    유지한다. product_hero·result_glow 등 인물 비중이 낮은 shot에는 적용하지
+    않는다 — Veo 처리 대상(_VEO_ROLES)과 동일한 경계를 따른다.
+
     Args:
         client: VendorClient 인스턴스 (generate_image, image_to_video, synthesize_speech 메서드 필요)
         shotlist: build_shotlist()가 반환한 숏리스트 dict (in-place 수정됨)
         profile: style_profile dict
         run_dir: outputs/<run_id>/ 디렉터리 절대 경로
         voice: TTS 목소리 이름 (기본값: "ko-KR-Standard-A")
+        creator_photo: 크리에이터(인물) 참조 사진 바이트 (선택, 기본값: None)
 
     Returns:
         asset_path가 채워진 shotlist dict (in-place 수정 후 반환)
@@ -293,6 +304,9 @@ def render_assets(
     for shot in shots:
         asset_type = shot.get("asset_type", "")
         index: int = shot.get("index", 0)
+        role = shot.get("role", "")
+        # 인물 비중이 높은 role에만 크리에이터 참조 사진 적용
+        shot_reference = creator_photo if role in _CREATOR_PHOTO_ROLES else None
 
         if asset_type == "imagen_image":
             out_path = run_path / f"shot_{index:02d}.png"
@@ -303,6 +317,7 @@ def render_assets(
                 prompt=prompt,
                 profile=profile,
                 out_path=out_path,
+                reference_image=shot_reference,
             )
             shot["asset_path"] = str(out_path)
             logger.debug("[assets] shot %d 저장: %s", index, out_path)
@@ -313,6 +328,7 @@ def render_assets(
                 shot=shot,
                 profile=profile,
                 out_path=out_path,
+                reference_image=shot_reference,
             )
             logger.debug("[assets] shot %d (veo_i2v) 저장: %s", index, shot.get("asset_path", ""))
         else:
@@ -348,6 +364,8 @@ def _render_image_shot(
     prompt: str,
     profile: dict,
     out_path: Path,
+    *,
+    reference_image: bytes | None = None,
 ) -> None:
     """단일 imagen_image 숏에 대해 이미지를 생성하고 out_path에 저장한다.
 
@@ -360,6 +378,7 @@ def _render_image_shot(
         prompt: Imagen에 전달할 프롬프트
         profile: style_profile dict (폴백 색상에 사용)
         out_path: 저장 대상 경로
+        reference_image: 크리에이터(인물) 참조 사진 바이트 (선택)
     """
     index = shot.get("index", "?")
     use_fallback = False
@@ -367,7 +386,9 @@ def _render_image_shot(
 
     # 1) 이미지 생성 시도
     try:
-        image_bytes = client.generate_image(prompt, aspect_ratio="9:16")  # type: ignore[union-attr]
+        image_bytes = client.generate_image(  # type: ignore[union-attr]
+            prompt, aspect_ratio="9:16", reference_image=reference_image
+        )
     except VendorError as exc:
         logger.warning(
             "[assets] shot %s: Imagen 호출 실패 — 폴백 이미지 사용. 원인: %s",
@@ -406,6 +427,8 @@ def _render_veo_shot(
     shot: dict,
     profile: dict,
     out_path: Path,
+    *,
+    reference_image: bytes | None = None,
 ) -> None:
     """단일 veo_i2v 숏에 대해 이미지 → 비디오 클립을 생성하고 out_path.with_suffix(".mp4")에 저장한다.
 
@@ -416,11 +439,16 @@ def _render_veo_shot(
     4. image_to_video() VendorError 시: Imagen 이미지(또는 폴백 이미지)를 .png로 저장하고
        shot["asset_path"]를 png 경로로 설정한다.
 
+    reference_image가 주어지면 1단계 이미지 생성 시 참조 이미지로 전달한다.
+    Veo는 그 결과 이미지를 image-to-video로 움직이게만 하므로, 인물 일관성은
+    이 단계에서 확보되면 Veo 단계까지 자연히 이어진다.
+
     Args:
         client: VendorClient 인스턴스
         shot: 해당 숏 dict (index, role, prompt, duration_sec 포함)
         profile: style_profile dict (폴백 색상에 사용)
         out_path: 기본 출력 경로 (.png 확장자 기준, .mp4로 변환해 저장)
+        reference_image: 크리에이터(인물) 참조 사진 바이트 (선택)
     """
     index = shot.get("index", "?")
     prompt = shot.get("prompt", "")
@@ -431,7 +459,9 @@ def _render_veo_shot(
     use_image_fallback = False
 
     try:
-        image_bytes = client.generate_image(prompt, aspect_ratio="9:16")  # type: ignore[union-attr]
+        image_bytes = client.generate_image(  # type: ignore[union-attr]
+            prompt, aspect_ratio="9:16", reference_image=reference_image
+        )
         if not _verify_ratio(image_bytes):
             logger.warning(
                 "[assets] veo shot %s: Imagen 이미지가 9:16 비율이 아님 — 폴백 이미지 사용.",

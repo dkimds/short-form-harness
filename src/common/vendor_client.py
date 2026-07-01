@@ -268,7 +268,13 @@ class VendorClient:
 
         return _retry("judge_video", "Gemini", _call)
 
-    def generate_image(self, prompt: str, *, aspect_ratio: str) -> bytes:
+    def generate_image(
+        self,
+        prompt: str,
+        *,
+        aspect_ratio: str,
+        reference_image: bytes | None = None,
+    ) -> bytes:
         """Nano Banana(Gemini 이미지 생성): 프롬프트 → 이미지 바이트.
 
         Imagen 전용 API(generate_images)가 아니라 Gemini의 generate_content를
@@ -276,9 +282,13 @@ class VendorClient:
         "gemini-2.5-flash-image"). Imagen과는 별도의 quota를 쓰므로 Imagen
         할당량이 소진된 상태에서도 독립적으로 동작한다. (요구사항 10.1)
 
+        reference_image가 주어지면 prompt와 함께 contents에 포함해 참조
+        이미지의 인물·특징을 유지하도록 요청한다 (크리에이터 사진 일관성 유지 용도).
+
         Args:
             prompt: 이미지 생성 지침 프롬프트.
             aspect_ratio: 이미지 종횡비 문자열 (예: ``"9:16"``).
+            reference_image: 참조 이미지 바이트 (PNG/JPEG). None이면 텍스트만 사용.
 
         Returns:
             생성된 이미지의 바이트 데이터.
@@ -289,9 +299,14 @@ class VendorClient:
         """
 
         def _call() -> bytes:
+            contents: list = [prompt]
+            if reference_image is not None:
+                contents.append(
+                    genai_types.Part.from_bytes(data=reference_image, mime_type="image/png")
+                )
             response = self._client.models.generate_content(
                 model=self._config.imagen_model,
-                contents=[prompt],
+                contents=contents,
                 config=genai_types.GenerateContentConfig(
                     response_modalities=["Image"],
                     image_config=genai_types.ImageConfig(aspect_ratio=aspect_ratio),
