@@ -4,13 +4,15 @@ src/generate/plan.py — 숏리스트 플래닝 (요구사항 9.1~9.4, 16.4)
 beat_sheet를 순회해 각 장면의 숏 계획을 수립하고 shotlist.json으로 저장한다.
 
 핵심 설계 원칙:
-- narrative.beats를 순서대로 순회해 shot_type·duration·asset_type·prompt를 결정
-- pacing.cut_count_range에서 rng로 총 컷 수 샘플링
-- product_hero beats → P0 에서는 'imagen_image' (P1에서 'veo_i2v')
-- 나머지 모든 beats → 'imagen_image'
-- 비트 ↔ 컷 수 배분: 비율(duration) 기반, 각 beat 최소 1컷 보장
+- narrative.beats가 스토리 구조의 유일한 출처 (1 beat = 1 shot)
+- pacing.cut_count_range는 분석 단계의 메타데이터로만 사용 (생성에는 미사용)
+- 모든 beats는 'veo_i2v'로 처리 (동영상 생성)
 - src/analyze/ 를 절대 import하지 않는다 (요구사항 13.2)
 - 벤더 호출 없음 — 이 모듈은 순수 로직 레이어
+
+재생산성 보장:
+- beats 수 = 생성될 shots 수 (명확한 1:1 대응)
+- cut_count_range를 샘플링하지 않음 → 매번 동일한 구조 재현
 """
 
 from __future__ import annotations
@@ -40,56 +42,8 @@ _SLOW_HOLD_MIN = 3.0
 # 내부 헬퍼
 # ---------------------------------------------------------------------------
 
-def _distribute_cuts(beats: list[dict], total_cuts: int) -> list[int]:
-    """비트 배열에 총 컷 수를 비율 기반으로 배분한다.
-
-    알고리즘:
-    1. 각 beat에 최소 1컷 할당
-    2. 남은 컷(total_cuts - num_beats)을 beat 길이(duration) 내림차순으로 배분
-       → 길이가 긴 beat에 우선 배분
-    3. total_cuts < num_beats인 경우 모든 beat에 1컷씩 (최소 보장)
-
-    Args:
-        beats: narrative.beats 배열 (start_sec, end_sec 필드 필요)
-        total_cuts: 총 컷 수 (pacing.cut_count_range에서 샘플링된 값)
-
-    Returns:
-        각 beat에 할당된 컷 수 리스트 (beats와 같은 순서)
-    """
-    num_beats = len(beats)
-    if num_beats == 0:
-        return []
-
-    # 각 beat의 길이 계산
-    durations = [
-        max(0.0, beat.get("end_sec", 0.0) - beat.get("start_sec", 0.0))
-        for beat in beats
-    ]
-    total_duration = sum(durations)
-
-    # 모든 beat에 최소 1컷 할당
-    cuts = [1] * num_beats
-
-    # total_cuts가 beat 수보다 작으면 최소 1컷/beat 그대로
-    remainder = total_cuts - num_beats
-    if remainder <= 0:
-        return cuts
-
-    # 남은 컷을 길이 내림차순 beat 인덱스 순으로 배분
-    if total_duration > 0:
-        # 비율 기반 정렬: duration이 길수록 먼저
-        indexed_durations = sorted(
-            enumerate(durations), key=lambda x: x[1], reverse=True
-        )
-    else:
-        # duration 정보 없으면 순서대로
-        indexed_durations = list(enumerate(durations))
-
-    for i in range(remainder):
-        beat_idx = indexed_durations[i % num_beats][0]
-        cuts[beat_idx] += 1
-
-    return cuts
+# NOTE: _distribute_cuts() 함수는 더 이상 사용하지 않음.
+# 새로운 설계에서는 1 beat = 1 shot 고정 원칙을 따름.
 
 
 def _build_prompt_text(beat: dict, profile: dict, brief: dict) -> str:
@@ -215,31 +169,27 @@ def build_shotlist(
     *,
     rng: random.Random,
 ) -> dict:
-    """narrative.beats를 순회해 숏 계획을 수립한다.
+    """narrative.beats를 1:1로 shots로 변환한다.
 
-    pacing.cut_count_range에서 총 컷 수를 샘플링하고, 각 beat에 비율 기반으로
-    컷 수를 배분한다. 각 beat 내에서 컷들은 beat 길이를 균등 분할한다.
+    새로운 설계 원칙:
+    - 1 beat = 1 shot (명확한 대응)
+    - pacing.cut_count_range는 무시 (분석 메타데이터로만 유지)
+    - 모든 shots는 'veo_i2v' (동영상 생성)
+    - beat의 duration을 그대로 shot의 duration으로 사용
 
-    product_hero beats는 'veo_i2v'로 처리한다.
-    나머지 모든 beats는 'imagen_image'다.
+    재생산성 보장:
+    - beats가 유일한 출처 → 매번 동일한 구조
+    - rng 샘플링 없음 → 비결정적 요소 제거
 
     Args:
         brief: build_brief()가 반환한 브리프 dict
         profile: style_profile dict
         hook_text: generate_hook()이 반환한 훅 텍스트 (프롬프트에 포함 가능)
-        rng: 결정적 재현을 위해 외부에서 주입된 random.Random 인스턴스
+        rng: random.Random 인스턴스 (하위 호환성 유지, 현재는 미사용)
 
     Returns:
         shotlist dict (run_id, shots 배열)
     """
-    pacing = profile.get("pacing", {})
-    cut_count_range = pacing.get("cut_count_range", [4, 12])
-    cut_min = int(cut_count_range[0])
-    cut_max = int(cut_count_range[1])
-
-    # 총 컷 수 샘플링
-    total_cuts = rng.randint(cut_min, cut_max)
-
     beats = profile.get("narrative", {}).get("beats", [])
 
     if not beats:
@@ -247,51 +197,36 @@ def build_shotlist(
         run_id = Path(brief.get("run_dir", "outputs/unknown")).name if brief.get("run_dir") else "unknown"
         return {"run_id": run_id, "shots": []}
 
-    # 비트별 컷 수 배분
-    cuts_per_beat = _distribute_cuts(beats, total_cuts)
-
-    # run_id 추출 (brief에 run_dir이 있으면 basename 사용)
+    # run_id 추출
     run_dir = brief.get("run_dir", "")
     run_id = Path(run_dir).name if run_dir else "unknown"
 
     shots: list[dict] = []
-    shot_index = 0
 
-    for beat_idx, beat in enumerate(beats):
+    for shot_index, beat in enumerate(beats):
         role = beat.get("role", "")
         start_sec = beat.get("start_sec", 0.0)
         end_sec = beat.get("end_sec", 0.0)
         beat_duration = max(0.0, end_sec - start_sec)
 
-        n_cuts = cuts_per_beat[beat_idx]
+        # duration이 0이면 기본값 1초
+        shot_duration = beat_duration if beat_duration > 0 else 1.0
 
-        # beat 내 각 컷의 duration = beat 길이 / 컷 수
-        if n_cuts > 0 and beat_duration > 0:
-            cut_duration = beat_duration / n_cuts
-        elif n_cuts > 0:
-            # duration 정보가 없으면 기본값
-            cut_duration = 1.0
-        else:
-            continue
-
-        # asset_type 결정: 모든 숏을 veo_i2v로 처리 (전체 동영상 생성)
+        # 모든 숏을 veo_i2v로 처리 (동영상 생성)
         asset_type = "veo_i2v"
 
         # 프롬프트 구성
         prompt = _build_prompt_text(beat, profile, brief)
 
-        for _ in range(n_cuts):
-            # asset_path는 assets.py 단계에서 채워짐 — 여기서는 빈 문자열
-            shot: dict = {
-                "index": shot_index,
-                "role": role,
-                "asset_type": asset_type,
-                "duration_sec": round(cut_duration, 4),
-                "prompt": prompt,
-                "asset_path": "",
-            }
-            shots.append(shot)
-            shot_index += 1
+        shot: dict = {
+            "index": shot_index,
+            "role": role,
+            "asset_type": asset_type,
+            "duration_sec": round(shot_duration, 4),
+            "prompt": prompt,
+            "asset_path": "",  # assets.py 단계에서 채워짐
+        }
+        shots.append(shot)
 
     shotlist = {
         "run_id": run_id,
@@ -299,10 +234,9 @@ def build_shotlist(
     }
 
     logger.info(
-        "[plan] 숏리스트 생성 완료: %d beats → %d shots (total_cuts=%d)",
+        "[plan] 숏리스트 생성 완료: %d beats → %d shots (1:1 매칭)",
         len(beats),
         len(shots),
-        total_cuts,
     )
     return shotlist
 

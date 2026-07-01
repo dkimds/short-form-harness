@@ -25,7 +25,6 @@ from hypothesis import strategies as st
 from src.generate.plan import (
     build_shotlist,
     write_shotlist,
-    _distribute_cuts,
     _build_prompt_text,
 )
 
@@ -81,71 +80,8 @@ def _seeded_rng(seed: int = 42) -> random.Random:
 # ---------------------------------------------------------------------------
 # _distribute_cuts 단위 테스트
 # ---------------------------------------------------------------------------
-
-class TestDistributeCuts:
-    def test_empty_beats(self):
-        assert _distribute_cuts([], 10) == []
-
-    def test_minimum_one_cut_per_beat(self):
-        beats = [
-            {"start_sec": 0.0, "end_sec": 1.0},
-            {"start_sec": 1.0, "end_sec": 2.0},
-            {"start_sec": 2.0, "end_sec": 3.0},
-        ]
-        result = _distribute_cuts(beats, 5)
-        assert all(c >= 1 for c in result)
-
-    def test_total_cuts_equals_requested(self):
-        beats = [
-            {"start_sec": 0.0, "end_sec": 2.0},
-            {"start_sec": 2.0, "end_sec": 3.0},
-            {"start_sec": 3.0, "end_sec": 5.0},
-            {"start_sec": 5.0, "end_sec": 6.5},
-            {"start_sec": 6.5, "end_sec": 9.9},
-        ]
-        for total in [5, 8, 12, 15]:
-            result = _distribute_cuts(beats, total)
-            # total >= num_beats → 합은 total
-            if total >= len(beats):
-                assert sum(result) == total
-            else:
-                # total < num_beats → 최소 보장으로 모두 1
-                assert sum(result) == len(beats)
-
-    def test_total_cuts_less_than_beats(self):
-        """총 컷 수가 beat 수보다 적으면 모든 beat에 1컷씩."""
-        beats = [
-            {"start_sec": i * 1.0, "end_sec": (i + 1) * 1.0}
-            for i in range(5)
-        ]
-        result = _distribute_cuts(beats, 3)
-        assert result == [1, 1, 1, 1, 1]
-
-    def test_longer_beats_get_more_cuts(self):
-        """duration이 긴 beat에 더 많은 컷이 배분된다."""
-        beats = [
-            {"start_sec": 0.0, "end_sec": 0.5},   # 짧음 (0.5초)
-            {"start_sec": 0.5, "end_sec": 5.5},   # 긺 (5.0초)
-        ]
-        result = _distribute_cuts(beats, 7)
-        assert result[1] >= result[0], "긴 beat가 짧은 beat보다 컷이 적어선 안 된다"
-
-    def test_five_beats_twelve_cuts_distribution(self):
-        """beats=5, cut_count=12의 구체적 예시 (태스크 명세 예시)."""
-        beats = [
-            {"start_sec": 0.0, "end_sec": 0.9},   # 0.9초
-            {"start_sec": 0.9, "end_sec": 2.2},   # 1.3초
-            {"start_sec": 2.2, "end_sec": 3.7},   # 1.5초
-            {"start_sec": 3.7, "end_sec": 4.6},   # 0.9초
-            {"start_sec": 4.6, "end_sec": 9.9},   # 5.3초 (가장 길다)
-        ]
-        result = _distribute_cuts(beats, 12)
-        assert len(result) == 5
-        assert all(c >= 1 for c in result)
-        assert sum(result) == 12
-        # 가장 긴 beat(index 4)가 가장 많은 컷을 받아야 한다
-        assert result[4] >= result[0]
-
+# NOTE: _distribute_cuts() 함수는 제거됨 (1 beat = 1 shot 원칙으로 변경)
+# ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
 # _build_prompt_text 단위 테스트
@@ -226,19 +162,26 @@ class TestBuildShotlist:
         shotlist = build_shotlist(
             _make_brief(), profile, "훅", rng=_seeded_rng(42)
         )
-        n = len(shotlist["shots"])
-        assert 4 <= n <= 12, f"숏 수 {n}이 cut_count_range [4,12] 밖이다"
-
-    def test_minimum_one_shot_per_beat(self):
-        """각 beat에 최소 1개의 숏이 생성된다 (요구사항 9.1)."""
+    def test_total_shots_equals_beats_count(self):
+        """생성된 샷 수는 beats 수와 정확히 일치한다 (1:1 매칭)."""
         profile = _make_profile()
         beats = profile["narrative"]["beats"]
         shotlist = build_shotlist(
             _make_brief(), profile, "훅", rng=_seeded_rng(99)
         )
-        roles_in_shotlist = [s["role"] for s in shotlist["shots"]]
+        assert len(shotlist["shots"]) == len(beats)
+
+    def test_each_beat_creates_exactly_one_shot(self):
+        """각 beat는 정확히 1개의 숏을 생성한다 (요구사항 9.1)."""
+        profile = _make_profile()
+        beats = profile["narrative"]["beats"]
+        shotlist = build_shotlist(
+            _make_brief(), profile, "훅", rng=_seeded_rng(99)
+        )
+        # 모든 beat role이 shots에 1번씩 등장
+        shot_roles = [s["role"] for s in shotlist["shots"]]
         for beat in beats:
-            assert beat["role"] in roles_in_shotlist, (
+            assert shot_roles.count(beat["role"]) >= 1, (
                 f"beat role '{beat['role']}' 가 숏리스트에 없다"
             )
 
