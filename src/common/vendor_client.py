@@ -246,6 +246,15 @@ class VendorClient:
                 file=video_path,
                 config=genai_types.UploadFileConfig(mime_type="video/mp4"),
             )
+            # Files API: 업로드 후 ACTIVE 상태가 될 때까지 폴링
+            import time as _time
+            for _ in range(20):  # 최대 20초 대기
+                file_info = self._client.files.get(name=uploaded.name)
+                if file_info.state.name == "ACTIVE":
+                    break
+                _time.sleep(1)
+            else:
+                raise RuntimeError(f"File {uploaded.name} did not become ACTIVE in time")
             response = self._client.models.generate_content(
                 model=self._config.gemini_model,
                 contents=[uploaded, prompt],

@@ -359,10 +359,17 @@ class TestVendorClientAnalyzeVideo:
 # judge_video 테스트
 # ---------------------------------------------------------------------------
 class TestVendorClientJudgeVideo:
+    def _mock_active_file(self, client) -> None:
+        """Files API 폴링: state.name == "ACTIVE" 를 즉시 반환하도록 설정."""
+        client._client.files.upload.return_value = MagicMock()
+        mock_file_info = MagicMock()
+        mock_file_info.state.name = "ACTIVE"
+        client._client.files.get.return_value = mock_file_info
+
     def test_returns_verdict_and_reasons(self):
         client = _make_client()
 
-        client._client.files.upload.return_value = MagicMock()
+        self._mock_active_file(client)
         mock_response = MagicMock()
         mock_response.text = '{"verdict": "PASS", "reasons": ["good pacing"]}'
         client._client.models.generate_content.return_value = mock_response
@@ -374,7 +381,7 @@ class TestVendorClientJudgeVideo:
     def test_normalizes_non_list_reasons(self):
         client = _make_client()
 
-        client._client.files.upload.return_value = MagicMock()
+        self._mock_active_file(client)
         mock_response = MagicMock()
         mock_response.text = '{"verdict": "FAIL", "reasons": "단일 이유"}'
         client._client.models.generate_content.return_value = mock_response
@@ -386,7 +393,7 @@ class TestVendorClientJudgeVideo:
     def test_missing_keys_default_to_empty(self):
         client = _make_client()
 
-        client._client.files.upload.return_value = MagicMock()
+        self._mock_active_file(client)
         mock_response = MagicMock()
         mock_response.text = '{}'
         client._client.models.generate_content.return_value = mock_response
