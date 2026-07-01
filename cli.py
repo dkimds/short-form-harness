@@ -29,7 +29,7 @@ from src.common.io import make_run_id, make_run_dir, read_json
 from src.common.vendor_client import VendorClient
 from src.generate.brief import UserInput, build_brief, write_prompt_txt
 from src.generate.hook_gen import fill_hook_slot, generate_hook
-from src.generate.plan import build_shotlist, write_shotlist
+from src.generate.plan import build_shotlist, normalize_profile_duration, write_shotlist
 from src.generate.assets import render_assets
 from src.generate.compose import compose_video
 from src.generate.gate import run_gate
@@ -166,6 +166,11 @@ def cmd_generate(args: argparse.Namespace, config: Config, client: VendorClient)
             # ── 5. 훅 슬롯 채우기 ─────────────────────────────────────────
             profile_with_hook = fill_hook_slot(profile, hook_text)
 
+            # ── 5.5 재생 시간 정규화 (숏폼 범위 15~60초로 스케일링) ────────
+            profile_with_hook = normalize_profile_duration(
+                profile_with_hook, target_sec=args.duration
+            )
+
             # ── 6. 숏리스트 생성 ──────────────────────────────────────────
             shotlist = build_shotlist(
                 brief,
@@ -289,6 +294,16 @@ def _build_parser() -> argparse.ArgumentParser:
         default=1,
         metavar="N",
         help="동일 입력으로 반복 생성할 횟수 (기본값: 1).",
+    )
+    generate_parser.add_argument(
+        "--duration",
+        type=float,
+        default=None,
+        metavar="SEC",
+        help=(
+            "목표 재생 시간(초). 미지정 시 프로파일의 원본 길이가 숏폼 범위"
+            "(15~60초) 안이면 그대로, 밖이면 가까운 경계값으로 자동 조정."
+        ),
     )
 
     return parser
