@@ -26,7 +26,7 @@ class Config:
         google_api_key: Google AI Studio API 키. 필수.
         gemini_model: Gemini 모델 식별자. 기본값 "gemini-2.0-flash".
         imagen_model: Imagen 모델 식별자. 기본값 "imagen-3.0-generate-002".
-        veo_model: Veo 모델 식별자. 기본값 "veo-2.0-generate-001".
+        veo_model: Veo 모델 식별자. 기본값 "veo-3.1-fast-generate-preview".
         tts_voice: Google TTS 음성 식별자. 기본값 "en-US-Neural2-F".
     """
 
@@ -80,6 +80,6 @@ def load_config() -> Config:
         google_api_key=google_api_key,
         gemini_model=os.environ.get("GEMINI_MODEL", "gemini-2.5-flash"),
         imagen_model=os.environ.get("IMAGEN_MODEL", "imagen-4.0-generate-001"),
-        veo_model=os.environ.get("VEO_MODEL", "veo-2.0-generate-001"),
+        veo_model=os.environ.get("VEO_MODEL", "veo-3.1-fast-generate-preview"),
         tts_voice=os.environ.get("TTS_VOICE", "en-US-Neural2-F"),
     )
