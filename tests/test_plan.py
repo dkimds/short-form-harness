@@ -24,6 +24,7 @@ from hypothesis import strategies as st
 from src.generate.plan import (
     build_shotlist,
     write_shotlist,
+    normalize_profile_duration,
     _build_prompt_text,
 )
 
@@ -287,6 +288,54 @@ class TestBuildShotlist:
 # ---------------------------------------------------------------------------
 # write_shotlist 단위 테스트
 # ---------------------------------------------------------------------------
+
+class TestNormalizeProfileDuration:
+    def _make_duration_profile(self, duration_range=(10.7, 10.7)) -> dict:
+        return {
+            "format": {"duration_sec_range": list(duration_range)},
+            "narrative": {"beats": [
+                {"role": "hook", "start_sec": 0.0, "end_sec": 1.5},
+                {"role": "application", "start_sec": 1.5, "end_sec": 10.7},
+            ]},
+            "captions": {"slots": [
+                {"appear_sec": 0.0, "duration_sec": 4.5},
+            ]},
+            "pacing": {"avg_shot_len_sec": 0.9},
+        }
+
+    def test_default_clamps_to_15_min(self):
+        """enforce_min=True(기본값)면 15초 미만 원본은 15초로 클램프된다."""
+        profile = self._make_duration_profile((10.7, 10.7))
+        result = normalize_profile_duration(profile)
+        assert result["format"]["duration_sec_range"][-1] == pytest.approx(15.0)
+
+    def test_enforce_min_false_allows_target_below_15(self):
+        """enforce_min=False + target_sec<15면 15초 클램프 없이 target_sec을 그대로 쓴다."""
+        profile = self._make_duration_profile((10.7, 10.7))
+        result = normalize_profile_duration(profile, target_sec=10.7, enforce_min=False)
+        assert result["format"]["duration_sec_range"][-1] == pytest.approx(10.7, abs=0.01)
+
+    def test_enforce_min_false_still_respects_max(self):
+        """enforce_min=False라도 60초 상한 클램프는 항상 적용된다."""
+        profile = self._make_duration_profile((10.7, 10.7))
+        result = normalize_profile_duration(profile, target_sec=90.0, enforce_min=False)
+        assert result["format"]["duration_sec_range"][-1] == pytest.approx(60.0)
+
+    def test_enforce_min_false_scales_beats_proportionally(self):
+        """enforce_min=False로 축소해도 beats 비율은 유지된다."""
+        profile = self._make_duration_profile((10.7, 10.7))
+        result = normalize_profile_duration(profile, target_sec=5.35, enforce_min=False)
+        beats = result["narrative"]["beats"]
+        # scale = 5.35 / 10.7 = 0.5
+        assert beats[0]["end_sec"] == pytest.approx(0.75, abs=0.01)
+        assert beats[1]["end_sec"] == pytest.approx(5.35, abs=0.01)
+
+    def test_original_profile_not_mutated(self):
+        """원본 profile은 변경되지 않는다."""
+        profile = self._make_duration_profile((10.7, 10.7))
+        normalize_profile_duration(profile, target_sec=10.7, enforce_min=False)
+        assert profile["format"]["duration_sec_range"] == [10.7, 10.7]
+
 
 class TestWriteShotlist:
     def test_creates_shotlist_json(self, tmp_path):

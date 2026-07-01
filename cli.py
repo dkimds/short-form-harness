@@ -31,7 +31,7 @@ from src.generate.brief import UserInput, build_brief, write_prompt_txt
 from src.generate.hook_gen import fill_hook_slot, generate_hook
 from src.generate.plan import build_shotlist, normalize_profile_duration, write_shotlist
 from src.generate.assets import render_assets
-from src.generate.compose import compose_video
+from src.generate.compose import compose_video, get_music_duration
 from src.generate.gate import run_gate
 
 logger = logging.getLogger(__name__)
@@ -133,6 +133,12 @@ def cmd_generate(args: argparse.Namespace, config: Config, client: VendorClient)
         print(f"오류: {exc}", file=sys.stderr)
         sys.exit(1)
 
+    # ── 1.5 배경(setting) override (선택) ───────────────────────────────────
+    # --background는 프로파일의 visual.setting을 텍스트 프롬프트로 덮어쓴다.
+    # visual 섹션 전체(色감·조명 등)는 그대로 두고 setting만 교체한다.
+    if args.background:
+        profile.setdefault("visual", {})["setting"] = args.background
+
     # ── 2. 입력 타입 감지 ───────────────────────────────────────────────────
     input_value: str = args.input
     lower = input_value.lower()
@@ -162,6 +168,31 @@ def cmd_generate(args: argparse.Namespace, config: Config, client: VendorClient)
     if creator_photo_path:
         creator_photo_bytes = Path(creator_photo_path).read_bytes()
 
+    # ── 3.5 목표 재생 시간 결정 ──────────────────────────────────────────────
+    # --duration 미지정 시, 음악 트랙의 실제 길이(music_start_sec 오프셋 제외)에
+    # 맞춘다 — 음악이 루프 없이 정확히 한 번 재생되고 끝나도록. 15초 숏폼 하한은
+    # 권장값일 뿐 필수가 아니므로 enforce_min=False로 하한 클램프를 건너뛴다.
+    # 음악 길이를 알 수 없으면(트랙/moviepy 로드 실패) 기존 15~60초 클램프로 폴백.
+    target_duration_sec: float | None = args.duration
+    enforce_min_duration = True
+    if target_duration_sec is None:
+        audio_cfg = profile.get("audio", {})
+        music_duration = get_music_duration(
+            audio_cfg.get("music_mood", ""),
+            music_start_sec=float(audio_cfg.get("music_start_sec", 0.0)),
+        )
+        if music_duration is not None:
+            target_duration_sec = music_duration
+            enforce_min_duration = False
+            logger.info(
+                "[generate] --duration 미지정 — 음악 길이(%.2fs)에 재생시간을 맞춥니다.",
+                music_duration,
+            )
+        else:
+            logger.warning(
+                "[generate] 음악 길이를 확인할 수 없어 기존 15~60초 클램프로 폴백합니다."
+            )
+
     runs: int = args.runs
     completed = 0
 
@@ -177,9 +208,11 @@ def cmd_generate(args: argparse.Namespace, config: Config, client: VendorClient)
             # ── 5. 훅 슬롯 채우기 ─────────────────────────────────────────
             profile_with_hook = fill_hook_slot(profile, hook_text)
 
-            # ── 5.5 재생 시간 정규화 (숏폼 범위 15~60초로 스케일링) ────────
+            # ── 5.5 재생 시간 정규화 ──────────────────────────────────────
             profile_with_hook = normalize_profile_duration(
-                profile_with_hook, target_sec=args.duration
+                profile_with_hook,
+                target_sec=target_duration_sec,
+                enforce_min=enforce_min_duration,
             )
 
             # ── 6. 숏리스트 생성 ──────────────────────────────────────────
@@ -288,8 +321,10 @@ def _build_parser() -> argparse.ArgumentParser:
             "style_profile.json과 사용자 입력(텍스트/이미지/영상)을 받아\n"
             "같은 스타일의 새 숏폼 mp4를 생성합니다.\n\n"
             "예시:\n"
-            "  uv run python cli.py generate --profile profiles/biodance.json --input \"글로우 세럼\" --runs 1\n"
-            "  uv run python cli.py generate --profile profiles/biodance.json --input image.png"
+            "  uv run python cli.py generate --profile profiles/ref1.json --input \"글로우 세럼\" --runs 1\n"
+            "  uv run python cli.py generate --profile profiles/ref1.json --input image.png\n"
+            "  uv run python cli.py generate --profile profiles/ref1.json --input \"글로우 세럼\" \\\n"
+            "    --creator-photo creator.jpg --background \"minimalist white studio\""
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -315,6 +350,16 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     generate_parser.add_argument(
+        "--background",
+        default=None,
+        metavar="TEXT",
+        help=(
+            "배경 묘사 텍스트 (선택). 주어지면 프로파일의 visual.setting을 "
+            "덮어써 모든 장면 프롬프트의 Setting 절에 반영됩니다. "
+            "예: --background \"minimalist white studio\""
+        ),
+    )
+    generate_parser.add_argument(
         "--runs",
         type=int,
         default=1,
@@ -327,8 +372,12 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="SEC",
         help=(
-            "목표 재생 시간(초). 미지정 시 프로파일의 원본 길이가 숏폼 범위"
-            "(15~60초) 안이면 그대로, 밖이면 가까운 경계값으로 자동 조정."
+            "목표 재생 시간(초). 미지정 시 profile.audio.music_mood로 선택될 "
+            "음악 트랙의 실제 길이(music_start_sec 오프셋 제외)에 맞춥니다 — "
+            "음악이 루프 없이 정확히 한 번 재생되고 끝나도록. 15초 미만이어도 "
+            "허용합니다(숏폼 15~60초는 권장값, 필수 제약 아님). 60초 상한만 "
+            "안전장치로 유지합니다. 음악 길이를 알 수 없으면 기존 방식(15~60초 "
+            "클램프)으로 폴백합니다."
         ),
     )
 

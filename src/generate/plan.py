@@ -111,7 +111,12 @@ def _build_prompt_text(beat: dict, profile: dict, brief: dict) -> str:
 # 퍼블릭 API
 # ---------------------------------------------------------------------------
 
-def normalize_profile_duration(profile: dict, *, target_sec: float | None = None) -> dict:
+def normalize_profile_duration(
+    profile: dict,
+    *,
+    target_sec: float | None = None,
+    enforce_min: bool = True,
+) -> dict:
     """profile의 재생 시간을 숏폼 허용 범위([15, 60]초)로 정규화한다.
 
     분석 단계는 레퍼런스 mp4의 실제 재생 시간을 그대로 format.duration_sec_range에
@@ -121,11 +126,17 @@ def normalize_profile_duration(profile: dict, *, target_sec: float | None = None
     rhythm_mode)을 비율을 유지한 채 스케일링해 항상 유효한 재생 시간을 만든다.
     cut_count_range(컷 수)는 바꾸지 않는다 — 레퍼런스의 컷 리듬 자체는 보존한다.
 
+    15초 하한은 "숏폼 범주" 권장값이며 필수 제약은 아니다. target_sec을 음악
+    실제 길이 등 명시적 근거로 지정하는 경우 enforce_min=False로 하한 클램프를
+    건너뛸 수 있다 (60초 상한은 항상 적용 — 이쪽은 안전장치).
+
     Args:
         profile: style_profile dict.
         target_sec: 명시하면 이 값(초)에 강제로 맞춘다(허용 범위로 클램프됨).
             None이면 원본 재생 시간이 이미 허용 범위 안이면 그대로 두고,
             범위 밖이면 가까운 경계값(15 또는 60)으로 클램프한다.
+        enforce_min: False이면 15초 하한 클램프를 건너뛴다 (기본값: True).
+            target_sec이 음악 길이처럼 근거 있는 값일 때 사용한다.
 
     Returns:
         정규화된 새 profile dict (원본은 변경하지 않음).
@@ -139,12 +150,14 @@ def normalize_profile_duration(profile: dict, *, target_sec: float | None = None
         logger.warning("[plan] duration_sec_range가 비어있어 정규화를 건너뜁니다.")
         return normalized
 
+    min_bound = _MIN_SHORTFORM_SEC if enforce_min else 0.0
+
     if target_sec is not None:
-        desired = min(max(target_sec, _MIN_SHORTFORM_SEC), _MAX_SHORTFORM_SEC)
-    elif _MIN_SHORTFORM_SEC <= raw <= _MAX_SHORTFORM_SEC:
+        desired = min(max(target_sec, min_bound), _MAX_SHORTFORM_SEC)
+    elif min_bound <= raw <= _MAX_SHORTFORM_SEC:
         return normalized  # 이미 허용 범위 안 — 레퍼런스의 원래 길이를 존중
     else:
-        desired = min(max(raw, _MIN_SHORTFORM_SEC), _MAX_SHORTFORM_SEC)
+        desired = min(max(raw, min_bound), _MAX_SHORTFORM_SEC)
 
     scale = desired / raw
     if abs(scale - 1.0) < 1e-9:

@@ -44,11 +44,11 @@ from src.common.io import make_run_id, make_run_dir
 # 상수 / 헬퍼
 # ---------------------------------------------------------------------------
 
-_PROFILE_PATH = Path(__file__).resolve().parents[1] / "profiles" / "biodance.json"
+_PROFILE_PATH = Path(__file__).resolve().parents[1] / "profiles" / "ref1.json"
 
 
 def _load_biodance_profile() -> dict:
-    """실제 profiles/biodance.json을 로드한다."""
+    """실제 profiles/ref1.json을 로드한다."""
     with open(_PROFILE_PATH, encoding="utf-8") as f:
         return json.load(f)
 

@@ -158,6 +158,7 @@ def write_prompt_txt(brief: dict, hook_text: str, run_dir: str) -> None:
     user_input = brief.get("user_input", {})
     profile_path = brief.get("profile_path", "")
     creator_photo_path = brief.get("creator_photo_path", "")
+    background_override = brief.get("visual", {}).get("setting", "")
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     lines = [
@@ -172,6 +173,7 @@ def write_prompt_txt(brief: dict, hook_text: str, run_dir: str) -> None:
         f"  kind  : {user_input.get('kind', '')}",
         f"  value : {user_input.get('value', '')}",
         f"  creator_photo : {creator_photo_path or '(없음)'}",
+        f"  background    : {background_override or '(프로파일 기본값 사용)'}",
         "-" * 60,
         "생성된 훅 텍스트",
         f"  {hook_text}",

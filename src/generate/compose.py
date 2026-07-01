@@ -120,6 +120,50 @@ def select_music(music_mood: str, music_dir: str = _DEFAULT_MUSIC_DIR) -> str:
     return full_path
 
 
+def get_music_duration(music_mood: str, music_start_sec: float = 0.0, music_dir: str = _DEFAULT_MUSIC_DIR) -> float | None:
+    """select_music()이 고를 트랙의 실제 재생 가능 길이(초)를 반환한다.
+
+    music_start_sec 오프셋 이후 남는 길이를 반환한다 — compose_video의
+    _build_audio_track()이 트랙을 이 지점부터 재생하기 때문에, 영상 길이를
+    이 값에 맞추면 음악이 루프 없이 정확히 한 번 재생되고 끝난다.
+
+    generate 단계에서 --duration을 명시하지 않았을 때 재생시간을 결정하는
+    데 사용한다 (요구사항: "재생시간은 자유이지만 추출한 음악 길이와
+    일치시킨다").
+
+    Args:
+        music_mood: profile.audio.music_mood
+        music_start_sec: profile.audio.music_start_sec (오프셋만큼 제외)
+        music_dir: music 디렉터리 경로
+
+    Returns:
+        음악 길이(초) - music_start_sec. 트랙을 읽을 수 없으면 None
+        (호출부가 폴백 로직을 적용하도록).
+    """
+    try:
+        music_path = select_music(music_mood, music_dir)
+    except HarnessError as exc:
+        logger.warning("[compose] get_music_duration: 트랙 선택 실패 — %s", exc)
+        return None
+
+    if not Path(music_path).exists():
+        logger.warning("[compose] get_music_duration: 파일 없음 — %s", music_path)
+        return None
+
+    try:
+        from moviepy import AudioFileClip  # type: ignore[import]
+
+        clip = AudioFileClip(music_path)
+        duration = float(clip.duration)
+        clip.close()
+    except Exception as exc:
+        logger.warning("[compose] get_music_duration: 로드 실패 — %s", exc)
+        return None
+
+    playable = duration - music_start_sec
+    return playable if playable > 0 else duration
+
+
 # ---------------------------------------------------------------------------
 # 순수 헬퍼 함수 (duration 조정 로직 — 테스트 가능한 순수 함수)
 # ---------------------------------------------------------------------------

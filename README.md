@@ -36,19 +36,29 @@ uv sync
 
 ```bash
 # 분석
-uv run python cli.py analyze --ref refs/reference1.mp4 --out profiles/biodance.json
+uv run python cli.py analyze --ref refs/reference1.mp4 --out profiles/ref1.json
 
 # 생성 — 텍스트 입력
-uv run python cli.py generate --profile profiles/biodance.json --input "glow serum"
+uv run python cli.py generate --profile profiles/ref1.json --input "glow serum"
 
 # 생성 — 크리에이터(인물) 참조 사진 포함 (선택)
-uv run python cli.py generate --profile profiles/biodance.json --input "glow serum" \
+uv run python cli.py generate --profile profiles/ref1.json --input "glow serum" \
   --creator-photo creator.jpg
+
+# 생성 — 배경 override 포함 (선택)
+uv run python cli.py generate --profile profiles/ref1.json --input "glow serum" \
+  --background "minimalist white studio"
+
+# 생성 — 인물 + 배경 모두 변경
+uv run python cli.py generate --profile profiles/ref1.json --input "glow serum" \
+  --creator-photo creator.jpg --background "minimalist white studio"
 ```
 
 > 레퍼런스는 분석에만 사용한다. 생성 단계는 `profiles/*.json`만 읽으며 레퍼런스 mp4를 직접 참조하지 않는다.
 
-> `--creator-photo`는 `--input`과 독립적인 선택 입력이다. `--input`은 제품/주제를 나타내고, `--creator-photo`는 hook·application 장면 생성 시 인물 일관성을 유지하기 위한 참조 이미지로만 쓰인다.
+> `--creator-photo`·`--background`는 `--input`과 독립적인 선택 입력이다. `--input`은 제품/주제를 나타내고, `--creator-photo`는 hook·application 장면 생성 시 인물 일관성을 유지하기 위한 참조 이미지로, `--background`는 모든 장면의 `visual.setting`을 덮어쓰는 배경 텍스트로 쓰인다.
+
+> `--duration` 미지정 시 재생시간은 `profile.audio.music_mood`로 선택될 음악 트랙의 실제 길이(`music_start_sec` 오프셋 제외)에 자동으로 맞춰진다 — 숏폼 15초 하한은 권장값일 뿐 필수가 아니므로, 음악이 10초대여도 그 길이 그대로 생성되고 루프 없이 정확히 한 번 재생되고 끝난다. 60초 상한만 안전장치로 유지된다.
 
 ---
 

@@ -16,6 +16,7 @@ import pytest
 from src.common.exceptions import HarnessError
 from src.generate.compose import (
     select_music,
+    get_music_duration,
     adjust_durations,
     _strip_emoji,
     _compute_caption_position,
@@ -160,6 +161,67 @@ class TestSelectMusic:
             pytest.skip("assets/music/index.json이 없음")
         result = select_music("upbeat_light_kpop_inspired")
         assert result.startswith("assets/music") or "assets/music" in result
+
+
+# ---------------------------------------------------------------------------
+# get_music_duration 테스트
+# ---------------------------------------------------------------------------
+
+def _write_silent_wav(path: Path, duration_sec: float, sample_rate: int = 22050) -> None:
+    """지정된 길이의 무음 WAV 파일을 작성한다 (get_music_duration 테스트용)."""
+    import wave
+    import struct as _struct
+
+    n_frames = int(duration_sec * sample_rate)
+    with wave.open(str(path), "w") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(sample_rate)
+        wf.writeframes(_struct.pack("<h", 0) * n_frames)
+
+
+class TestGetMusicDuration:
+    def test_returns_track_duration_without_offset(self, tmp_path):
+        """music_start_sec=0이면 트랙 전체 길이를 반환한다."""
+        music_dir = tmp_path / "music"
+        _write_index(music_dir, [{"file": "track.wav", "mood": "upbeat_light"}])
+        _write_silent_wav(music_dir / "track.wav", duration_sec=10.7)
+
+        result = get_music_duration("upbeat_light", music_start_sec=0.0, music_dir=str(music_dir))
+        assert result is not None
+        assert abs(result - 10.7) < 0.1
+
+    def test_subtracts_music_start_sec_offset(self, tmp_path):
+        """music_start_sec만큼 트랙 재생 가능 길이에서 제외된다."""
+        music_dir = tmp_path / "music"
+        _write_index(music_dir, [{"file": "track.wav", "mood": "upbeat_light"}])
+        _write_silent_wav(music_dir / "track.wav", duration_sec=10.7)
+
+        result = get_music_duration("upbeat_light", music_start_sec=0.7, music_dir=str(music_dir))
+        assert result is not None
+        assert abs(result - 10.0) < 0.1
+
+    def test_returns_none_when_index_missing(self, tmp_path):
+        """index.json이 없으면 None을 반환한다 (예외를 raise하지 않음)."""
+        music_dir = tmp_path / "no_music"
+        music_dir.mkdir()
+        result = get_music_duration("upbeat_light", music_dir=str(music_dir))
+        assert result is None
+
+    def test_returns_none_when_file_missing(self, tmp_path):
+        """index.json은 있지만 실제 파일이 없으면 None을 반환한다."""
+        music_dir = tmp_path / "music"
+        _write_index(music_dir, [{"file": "missing.wav", "mood": "upbeat_light"}])
+        result = get_music_duration("upbeat_light", music_dir=str(music_dir))
+        assert result is None
+
+    def test_real_ref1_bgm_duration(self):
+        """실제 assets/music/ref1_bgm.mp3 길이가 약 10.7초임을 확인한다."""
+        if not Path("assets/music/ref1_bgm.mp3").exists():
+            pytest.skip("assets/music/ref1_bgm.mp3가 없음")
+        result = get_music_duration("upbeat_light_kpop_inspired", music_start_sec=0.0464)
+        assert result is not None
+        assert 9.0 < result < 11.0
 
 
 # ---------------------------------------------------------------------------
