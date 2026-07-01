@@ -9,7 +9,11 @@ src/common/vendor_client.py — Google API 격리 래퍼
 교체·모킹을 쉽게 하기 위해 인터페이스는 벤더 중립적인 동사
 (analyze_video, generate_text, …)로 정의한다.
 
-재시도 정책: 최대 3회, 지수 백오프 (1 s → 2 s → 4 s).
+재시도 정책: 기본 최대 3회, 지수 백오프 (1 s → 2 s → 4 s).
+Veo(image_to_video)는 preview 모델이라 RPM 할당량이 훨씬 엄격해서
+(문서: "실험 모델과 프리뷰 모델의 비율 제한이 더 엄격합니다"), 초 단위
+백오프로는 quota window를 벗어나지 못하고 429가 반복된다. 이를 피하기
+위해 Veo 호출만 별도의 긴 백오프(수십 초 단위)를 쓴다.
 모든 재시도를 소진한 뒤에도 실패하면 ``VendorError``를 raise한다.
 """
 
@@ -38,9 +42,28 @@ T = TypeVar("T")
 _MAX_RETRIES = 3
 _BACKOFF_SECONDS = [1, 2, 4]  # attempt 0 → 1s, attempt 1 → 2s, 그 후 raise
 
+# Veo(image_to_video) 전용 백오프. preview 모델의 RPM 한도가 엄격해
+# 초 단위 재시도로는 429가 계속 반복된다 — 30s → 60s로 늘려 quota
+# window(보통 1분 단위)를 실제로 벗어나도록 한다.
+_VEO_MAX_RETRIES = 3
+_VEO_BACKOFF_SECONDS = [30, 60]  # attempt 0 → 30s, attempt 1 → 60s, 그 후 raise
 
-def _retry(operation_name: str, vendor_name: str, fn: Callable[[], T]) -> T:
-    """fn()을 최대 _MAX_RETRIES 회 시도한다.
+# 연속된 Veo 호출 사이에 두는 최소 간격(초). shotlist의 여러 shot이 짧은
+# 간격으로 image_to_video를 연달아 호출하면 quota window 안에 몰려 첫
+# 호출부터 429가 나기 쉽다 — 매 호출 전에 이만큼 쉬어 호출을 흩어놓는다.
+_VEO_MIN_INTERVAL_SECONDS = 20
+_last_veo_call_time: float = 0.0
+
+
+def _retry(
+    operation_name: str,
+    vendor_name: str,
+    fn: Callable[[], T],
+    *,
+    max_retries: int = _MAX_RETRIES,
+    backoff_seconds: list[int] | None = None,
+) -> T:
+    """fn()을 최대 max_retries 회 시도한다.
 
     성공하면 결과를 반환하고, 모든 시도가 실패하면 VendorError를 raise한다.
 
@@ -48,6 +71,9 @@ def _retry(operation_name: str, vendor_name: str, fn: Callable[[], T]) -> T:
         operation_name: 로그·에러 메시지에 표시할 작업 이름.
         vendor_name: 로그·에러 메시지에 표시할 벤더 이름.
         fn: 실행할 콜러블. 예외를 raise하면 실패로 간주한다.
+        max_retries: 최대 시도 횟수 (기본값: _MAX_RETRIES).
+        backoff_seconds: 시도 간 대기 시간 리스트 (기본값: _BACKOFF_SECONDS).
+            길이는 max_retries - 1 이상이어야 한다.
 
     Returns:
         fn()의 반환값.
@@ -55,26 +81,27 @@ def _retry(operation_name: str, vendor_name: str, fn: Callable[[], T]) -> T:
     Raises:
         VendorError: 최대 재시도 횟수를 소진한 경우.
     """
+    backoff = backoff_seconds if backoff_seconds is not None else _BACKOFF_SECONDS
     last_exc: Exception | None = None
-    for attempt in range(_MAX_RETRIES):
+    for attempt in range(max_retries):
         try:
             return fn()
         except Exception as exc:  # noqa: BLE001
             last_exc = exc
-            if attempt < _MAX_RETRIES - 1:
-                wait = _BACKOFF_SECONDS[attempt]
+            if attempt < max_retries - 1:
+                wait = backoff[attempt]
                 logger.warning(
                     "[%s] %s 시도 %d/%d 실패 — %ds 후 재시도: %s",
                     vendor_name,
                     operation_name,
                     attempt + 1,
-                    _MAX_RETRIES,
+                    max_retries,
                     wait,
                     exc,
                 )
                 time.sleep(wait)
     raise VendorError(
-        f"{vendor_name} API 호출이 {_MAX_RETRIES}회 재시도 후에도 실패했습니다 "
+        f"{vendor_name} API 호출이 {max_retries}회 재시도 후에도 실패했습니다 "
         f"(작업: {operation_name}).\n"
         f"  원인: {last_exc}\n"
         f"  해결: API 키를 확인하고 네트워크 상태를 점검하세요.\n"
@@ -326,66 +353,83 @@ class VendorClient:
         *,
         duration_sec: float,
     ) -> bytes:
-        """Veo i2v: 이미지 → 비디오 클립 바이트. (요구사항 10.2)
+        """Gemini Omni Flash i2v: 이미지 → 비디오 클립 바이트. (요구사항 10.2)
 
-        Veo predictLongRunning API를 호출해 이미지에서 비디오 클립을 생성한다.
-        작업이 완료될 때까지 폴링하며, 최대 60초(20회 × 3초) 대기한다.
-        모든 재시도를 소진하거나 타임아웃되면 VendorError를 raise한다.
+        interactions.create(video_config.task="image_to_video")를 호출해
+        이미지에서 비디오 클립을 생성한다. 모든 재시도를 소진하면
+        VendorError를 raise한다.
+
+        원래 Veo(veo-3.1-*-preview)로 구현했으나, 이 프로젝트에서는 Veo의
+        RPM 할당량이 재시도·백오프로도 극복되지 않을 정도로 엄격해(문서:
+        "실험 모델과 프리뷰 모델의 비율 제한이 더 엄격합니다") 429가 계속
+        반복되는 것을 확인했다. Gemini Omni Flash는 Veo와 완전히 분리된
+        quota를 쓰는 별도 모델이라 이걸로 교체했다 — 모델은 config.veo_model
+        필드로 계속 주입한다(하위 호환을 위해 필드명 유지).
+
+        preview 모델이라는 성격은 동일하므로, quota 안전장치(호출 간 최소
+        간격, 긴 백오프)는 그대로 유지한다.
 
         Args:
             image: 입력 이미지 바이트 (PNG 형식).
             prompt: 영상 생성 지침 프롬프트.
-            duration_sec: 생성할 클립의 길이(초). Veo는 정수 초를 받는다.
+            duration_sec: 생성할 클립의 길이(초). Omni Flash는 프롬프트
+                기반으로 길이를 추론하므로 프롬프트에 힌트로 포함한다.
 
         Returns:
             생성된 비디오 클립의 바이트 데이터 (mp4).
 
         Raises:
-            VendorError: Veo API 호출이 모든 재시도 소진 후에도 실패한 경우,
-                         또는 60초 내에 작업이 완료되지 않은 경우.
+            VendorError: API 호출이 모든 재시도 소진 후에도 실패한 경우,
+                         또는 응답에 비디오 데이터가 없는 경우.
         """
-        def _call() -> bytes:
-            operation = self._client.models.generate_videos(
-                model=self._config.veo_model,
-                source=genai_types.GenerateVideosSource(
-                    prompt=prompt,
-                    image=genai_types.Image(image_bytes=image, mime_type="image/png"),
-                ),
-                config=genai_types.GenerateVideosConfig(
-                    aspect_ratio="9:16",
-                    number_of_videos=1,
-                    # Veo는 4/6/8초 중 하나만 허용 (5·7초 등 다른 정수는 400 INVALID_ARGUMENT)
-                    duration_seconds=min((4, 6, 8), key=lambda allowed: abs(allowed - duration_sec)),
-                ),
+        global _last_veo_call_time
+        elapsed = time.monotonic() - _last_veo_call_time
+        if elapsed < _VEO_MIN_INTERVAL_SECONDS:
+            wait_before_call = _VEO_MIN_INTERVAL_SECONDS - elapsed
+            logger.info(
+                "[Veo] 연속 호출 간격 확보를 위해 %.0fs 대기합니다 (quota window 분산).",
+                wait_before_call,
             )
-            # 완료될 때까지 폴링 (최대 150초 = 30회 × 5초)
-            for _ in range(30):
-                if operation.done:
-                    break
-                time.sleep(5)
-                operation = self._client.operations.get(operation)
-            else:
-                # 루프가 break 없이 종료 → 타임아웃
-                raise RuntimeError("Veo operation did not complete within 60 seconds")
+            time.sleep(wait_before_call)
 
-            video = operation.response.generated_videos[0].video
-            # Veo returns either video_bytes or a URI (download required)
-            if video.video_bytes:
-                return video.video_bytes
-            if video.uri:
-                import urllib.request
-                req = urllib.request.Request(
-                    video.uri,
-                    headers={"x-goog-api-key": self._config.google_api_key},
-                )
-                with urllib.request.urlopen(req) as resp:
-                    video_bytes = resp.read()
-                if not video_bytes:
-                    raise RuntimeError("Veo URI download returned empty bytes")
-                return video_bytes
-            raise RuntimeError("Veo returned empty video bytes and no URI")
+        import base64 as _base64
 
-        return _retry("image_to_video", "Veo", _call)
+        image_b64 = _base64.b64encode(image).decode("utf-8")
+        video_prompt = (
+            f"{prompt} Continuous single shot, no scene changes, "
+            f"approximately {duration_sec:.0f} seconds long."
+        )
+
+        def _call() -> bytes:
+            interaction = self._client.interactions.create(
+                model=self._config.veo_model,
+                input=[
+                    {"type": "image", "data": image_b64, "mime_type": "image/png"},
+                    {"type": "text", "text": video_prompt},
+                ],
+                generation_config={"video_config": {"task": "image_to_video"}},
+                response_format={"type": "video", "aspect_ratio": "9:16"},
+            )
+            output_video = getattr(interaction, "output_video", None)
+            if output_video is None or not getattr(output_video, "data", None):
+                raise RuntimeError("Gemini Omni Flash 응답에 비디오 데이터가 없습니다")
+            video_bytes = _base64.b64decode(output_video.data)
+            if not video_bytes:
+                raise RuntimeError("Gemini Omni Flash가 빈 비디오 바이트를 반환했습니다")
+            return video_bytes
+
+        try:
+            return _retry(
+                "image_to_video",
+                "Veo",
+                _call,
+                max_retries=_VEO_MAX_RETRIES,
+                backoff_seconds=_VEO_BACKOFF_SECONDS,
+            )
+        finally:
+            # 성공/실패 모두 "마지막 호출 시각"으로 기록 — 다음 호출이
+            # 이 시각 기준으로 최소 간격을 확보하도록 한다.
+            _last_veo_call_time = time.monotonic()
 
     def synthesize_speech(self, text: str, *, voice: str) -> bytes:
         """Google TTS: 텍스트 → 오디오 바이트. (요구사항 10.3)

@@ -125,84 +125,66 @@ class TestRetry:
 
 
 # ---------------------------------------------------------------------------
-# image_to_video 테스트 (실제 Veo API 연결)
+# image_to_video 테스트 (Gemini Omni Flash 기반 image-to-video)
 # ---------------------------------------------------------------------------
 class TestVendorClientImageToVideo:
-    def _make_veo_operation(self, done: bool = True, video_bytes: bytes = b"mp4data") -> MagicMock:
-        """모킹된 Veo 작업 객체를 반환한다."""
-        operation = MagicMock()
-        operation.done = done
-        video = MagicMock()
-        video.video_bytes = video_bytes
-        generated_video = MagicMock()
-        generated_video.video = video
-        operation.response.generated_videos = [generated_video]
-        return operation
+    @pytest.fixture(autouse=True)
+    def _isolate_veo_call_timer(self):
+        """_last_veo_call_time 전역 상태를 테스트마다 초기화한다.
 
-    def test_returns_video_bytes_when_done_immediately(self):
-        """Veo 작업이 즉시 완료되면 비디오 바이트를 반환한다."""
+        image_to_video()는 호출 간 최소 간격(_VEO_MIN_INTERVAL_SECONDS)을
+        모듈 전역 시각으로 추적하는데, 이 상태가 테스트 간에 누적되면
+        이전 테스트의 호출 시각이 남아 다음 테스트에서 실제로 대기가
+        발생할 수 있다. 매 테스트 전에 충분히 과거로 리셋해 대기가
+        걸리지 않게 한다.
+        """
+        import time as _time
+        import src.common.vendor_client as _vc
+        _vc._last_veo_call_time = _time.monotonic() - 3600
+        yield
+
+    def _make_omni_interaction(self, video_bytes: bytes | None = b"mp4data") -> MagicMock:
+        """모킹된 interactions.create() 응답을 반환한다."""
+        import base64
+        interaction = MagicMock()
+        if video_bytes is None:
+            interaction.output_video = None
+        else:
+            interaction.output_video.data = base64.b64encode(video_bytes).decode("utf-8")
+        return interaction
+
+    def test_returns_video_bytes_on_success(self):
+        """interactions.create가 성공하면 디코딩된 비디오 바이트를 반환한다."""
         client = _make_client()
-        operation = self._make_veo_operation(done=True, video_bytes=b"fake_mp4_bytes")
-        client._client.models.generate_videos.return_value = operation
+        client._client.interactions.create.return_value = self._make_omni_interaction(
+            video_bytes=b"fake_mp4_bytes"
+        )
 
-        result = client.image_to_video(b"png_bytes", "test prompt", duration_sec=3.0)
+        with patch("src.common.vendor_client.time.sleep"):
+            result = client.image_to_video(b"png_bytes", "test prompt", duration_sec=3.0)
         assert result == b"fake_mp4_bytes"
 
-    def test_calls_generate_videos_with_correct_params(self):
-        """generate_videos는 올바른 파라미터로 호출된다."""
+    def test_calls_interactions_create_with_correct_params(self):
+        """interactions.create는 올바른 파라미터로 호출된다."""
         client = _make_client()
-        operation = self._make_veo_operation(done=True)
-        client._client.models.generate_videos.return_value = operation
+        client._client.interactions.create.return_value = self._make_omni_interaction()
 
-        client.image_to_video(b"img", "my prompt", duration_sec=5.0)
+        with patch("src.common.vendor_client.time.sleep"):
+            client.image_to_video(b"img", "my prompt", duration_sec=5.0)
 
-        call_kwargs = client._client.models.generate_videos.call_args.kwargs
+        call_kwargs = client._client.interactions.create.call_args.kwargs
         assert call_kwargs["model"] == client._config.veo_model
-        # source에 prompt와 image가 포함됨
-        source_arg = call_kwargs["source"]
-        assert source_arg.prompt == "my prompt"
-        # config에 올바른 값들이 전달됨을 확인
-        config_arg = call_kwargs["config"]
-        # Veo는 4/6/8초만 허용 — 5.0은 4와 6에 동거리이므로 먼저 나열된 4로 스냅
-        assert config_arg.duration_seconds == 4
-        assert config_arg.aspect_ratio == "9:16"
-        assert config_arg.number_of_videos == 1
-
-    def test_polls_until_done(self):
-        """작업이 완료될 때까지 폴링한다."""
-        client = _make_client()
-        op_not_done = MagicMock()
-        op_not_done.done = False
-        op_done = self._make_veo_operation(done=True, video_bytes=b"final_mp4")
-
-        client._client.models.generate_videos.return_value = op_not_done
-        client._client.operations.get.return_value = op_done
-
-        with patch("src.common.vendor_client.time.sleep"):
-            result = client.image_to_video(b"img", "prompt", duration_sec=3.0)
-
-        assert result == b"final_mp4"
-        client._client.operations.get.assert_called_once_with(op_not_done)
-
-    def test_raises_runtime_error_on_timeout(self):
-        """60초 내 완료되지 않으면 RuntimeError가 VendorError로 래핑된다."""
-        client = _make_client()
-        op_not_done = MagicMock()
-        op_not_done.done = False
-        client._client.models.generate_videos.return_value = op_not_done
-        client._client.operations.get.return_value = op_not_done  # 항상 미완료
-
-        with patch("src.common.vendor_client.time.sleep"):
-            with pytest.raises(VendorError) as exc_info:
-                client.image_to_video(b"img", "prompt", duration_sec=3.0)
-
-        assert exc_info.value.operation == "image_to_video"
-        assert exc_info.value.vendor == "Veo"
+        input_parts = call_kwargs["input"]
+        assert input_parts[0]["type"] == "image"
+        assert input_parts[0]["mime_type"] == "image/png"
+        assert "my prompt" in input_parts[1]["text"]
+        assert call_kwargs["generation_config"]["video_config"]["task"] == "image_to_video"
+        assert call_kwargs["response_format"]["aspect_ratio"] == "9:16"
 
     def test_raises_vendor_error_on_api_failure(self):
-        """Veo API 호출 실패 시 VendorError가 raise된다."""
+        """API 호출 실패 시 VendorError가 raise된다."""
         client = _make_client()
-        client._client.models.generate_videos.side_effect = RuntimeError("quota exceeded")
+        client._client.interactions.create.side_effect = RuntimeError("quota exceeded")
 
         with patch("src.common.vendor_client.time.sleep"):
             with pytest.raises(VendorError) as exc_info:
@@ -211,26 +193,47 @@ class TestVendorClientImageToVideo:
         assert exc_info.value.vendor == "Veo"
         assert exc_info.value.operation == "image_to_video"
 
-    def test_raises_vendor_error_on_empty_bytes(self):
-        """Veo가 빈 바이트를 반환하면 VendorError가 raise된다."""
+    def test_raises_vendor_error_on_missing_output_video(self):
+        """응답에 output_video가 없으면 VendorError가 raise된다."""
         client = _make_client()
-        operation = self._make_veo_operation(done=True, video_bytes=b"")
-        client._client.models.generate_videos.return_value = operation
+        client._client.interactions.create.return_value = self._make_omni_interaction(
+            video_bytes=None
+        )
 
         with patch("src.common.vendor_client.time.sleep"):
             with pytest.raises(VendorError):
                 client.image_to_video(b"img", "prompt", duration_sec=3.0)
 
-    def test_duration_snapped_to_nearest_allowed_value(self):
-        """duration_sec은 Veo가 허용하는 4/6/8초 중 가장 가까운 값으로 스냅된다."""
+    def test_retries_use_veo_specific_backoff(self):
+        """호출 실패 시 일반 백오프(1,2,4s)가 아니라 전용 백오프(30,60s)를 쓴다."""
         client = _make_client()
-        operation = self._make_veo_operation(done=True)
-        client._client.models.generate_videos.return_value = operation
+        client._client.interactions.create.side_effect = RuntimeError("429 quota")
 
-        client.image_to_video(b"img", "prompt", duration_sec=3.7)
+        with patch("src.common.vendor_client.time.sleep") as mock_sleep:
+            with pytest.raises(VendorError):
+                client.image_to_video(b"img", "prompt", duration_sec=3.0)
 
-        config_arg = client._client.models.generate_videos.call_args.kwargs["config"]
-        assert config_arg.duration_seconds == 4  # 3.7 → 가장 가까운 허용값 4
+        sleep_calls = [c.args[0] for c in mock_sleep.call_args_list if c.args]
+        assert any(s >= 30 for s in sleep_calls), f"백오프가 30s 이상이어야 함: {sleep_calls}"
+
+    def test_enforces_minimum_interval_between_calls(self):
+        """연속 image_to_video 호출 사이에 최소 간격을 둔다."""
+        import time as _time
+        import src.common.vendor_client as _vc
+
+        client = _make_client()
+        client._client.interactions.create.return_value = self._make_omni_interaction()
+
+        # 방금 호출한 것처럼 설정 — 다음 호출은 최소 간격만큼 대기해야 함
+        _vc._last_veo_call_time = _time.monotonic()
+
+        with patch("src.common.vendor_client.time.sleep") as mock_sleep:
+            client.image_to_video(b"img", "prompt", duration_sec=3.0)
+
+        # 첫 sleep 호출이 최소 간격 확보용이어야 함 (약 20초 이하, 0보다 커야 함)
+        assert mock_sleep.call_args_list, "최소 간격 대기를 위한 sleep이 호출되어야 함"
+        first_wait = mock_sleep.call_args_list[0].args[0]
+        assert 0 < first_wait <= _vc._VEO_MIN_INTERVAL_SECONDS
 
 
 # ---------------------------------------------------------------------------

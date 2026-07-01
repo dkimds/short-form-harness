@@ -30,7 +30,12 @@ class Config:
             generate_content 이미지 응답 모달리티를 사용한다 — Imagen과 별도
             quota라 Imagen 할당량 소진과 무관하게 동작한다. Imagen은 2026-08-17
             지원 종료가 예고되어 있어 신규 기본값에서 제외했다.
-        veo_model: Veo 모델 식별자. 기본값 "veo-3.1-fast-generate-preview".
+        veo_model: image-to-video 생성 모델 식별자. 기본값
+            "gemini-omni-flash-preview" (Gemini Omni Flash). Veo 계열
+            (veo-3.1-*-preview)은 이 프로젝트에서 RPM 할당량이 거의 0에
+            가까워 재시도·백오프로도 429가 반복되는 것을 확인했다 — Omni
+            Flash는 Veo와 완전히 분리된 quota를 쓰는 별도 모델이라 이를
+            기본값으로 채택했다. 필드명은 하위 호환을 위해 유지.
         tts_voice: Google TTS 음성 식별자. 기본값 "en-US-Neural2-F".
     """
 
@@ -84,6 +89,6 @@ def load_config() -> Config:
         google_api_key=google_api_key,
         gemini_model=os.environ.get("GEMINI_MODEL", "gemini-2.5-flash"),
         imagen_model=os.environ.get("IMAGEN_MODEL", "gemini-2.5-flash-image"),
-        veo_model=os.environ.get("VEO_MODEL", "veo-3.1-fast-generate-preview"),
+        veo_model=os.environ.get("VEO_MODEL", "gemini-omni-flash-preview"),
         tts_voice=os.environ.get("TTS_VOICE", "en-US-Neural2-F"),
     )

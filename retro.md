@@ -207,6 +207,33 @@ retro.md (작성 중 — 작업하며 채워간다)
   현재 상태: plan.py 수정 완료, 실제 생성 실행은 시간 제약으로 스킵 → 11(Gate)로 전환
   → 면접 떡밥: "모든 숏 Veo화의 비용·시간 트레이드오프?" → 히어로만 Veo, 나머지 Ken Burns로 절충안 설명 가능
 
+  Task 최종 (Veo → Gemini Omni Flash 교체, 실전 3편 생성 중):
+  증상: 실제로 3편을 생성하려 하니 Veo(veo-3.1-fast-generate-preview)에서 매 image_to_video
+        호출마다 429 RESOURCE_EXHAUSTED. 재시도 백오프를 1s→2s→4s에서 30s→60s로 늘리고
+        shot 간 최소 20초 간격을 둬도 계속 재발. lite 모델(veo-3.1-lite-generate-preview)로
+        바꿔도 몇 번 성공 후 다시 429.
+  원인 진단 과정: 처음엔 "빌링 안 켜서 그런가" 의심 → 사용자가 이미 빌링 켠 상태 확인 →
+        공식 rate-limits 문서에서 "실험/프리뷰 모델은 비율 제한이 더 엄격함" 확인 →
+        client.models.list()로 이 프로젝트가 실제 접근 가능한 Veo 모델 조회 → 3개 전부
+        preview(generate/fast-generate/lite-generate)뿐. GA인 veo-2.0-generate-001을
+        시도하니 404 — Gemini API가 아니라 Vertex AI 전용이라 이 SDK 경로로는 접근 불가.
+        즉 빌링 문제가 아니라 "이 API 경로의 Veo는 전부 preview이고 preview quota가
+        이 프로젝트에서 거의 0"이라는 구조적 제약.
+  해결: Gemini API가 Veo 외에 Gemini Omni Flash(gemini-omni-flash-preview)라는 별도
+        동영상 생성 모델을 제공하고, interactions.create(video_config.task="image_to_video")
+        로 image-to-video를 지원한다는 걸 공식 문서에서 발견. Veo와 완전히 분리된 quota를
+        쓴다. 실제 스모크 테스트로 정상 동작 확인(2.67MB mp4 생성) 후 vendor_client.py의
+        image_to_video()를 Veo의 generate_videos/predictLongRunning 폴링 방식에서
+        Omni Flash의 interactions.create() 방식으로 전면 교체.
+  트레이드오프: Config.veo_model 필드명은 하위 호환을 위해 유지했지만 실제로는 "Veo 모델"이
+        아니라 "image-to-video 모델" 전반을 가리키게 됨 — 필드명과 실제 의미가 어긋나는
+        기술 부채. .env의 VEO_MODEL 변수명까지 바꾸면 파급이 커서 docstring으로만 명확히 함.
+  남은 위험: Omni Flash도 preview 모델이라 근본적으로 같은 종류의 quota 리스크가 있음.
+        다만 지금까지는 Veo와 달리 429 없이 안정적으로 동작.
+  → 면접 떡밥: "왜 Veo 대신 Omni Flash?" → preview 모델의 RPM 할당량이 실제로 사용
+        불가능한 수준이었고, 같은 벤더(Google) 안에서 quota가 분리된 대체 모델을 찾아
+        교체한 실전 트러블슈팅 사례로 설명 가능.
+
   Task 7.1 (cli.py generate 서브커맨드 — context 오판):
   증상: brief.py가 이미 존재했는데 AI가 컨텍스트 컴팩션 후 "없다"고 판단 → 불필요한 재구현 실행
   원인: 긴 대화 중 컨텍스트 윈도우 압축으로 이전 파일 생성 사실이 소실됨
