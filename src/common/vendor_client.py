@@ -309,8 +309,11 @@ class VendorClient:
         "gemini-2.5-flash-image"). Imagen과는 별도의 quota를 쓰므로 Imagen
         할당량이 소진된 상태에서도 독립적으로 동작한다. (요구사항 10.1)
 
-        reference_image가 주어지면 prompt와 함께 contents에 포함해 참조
-        이미지의 인물·특징을 유지하도록 요청한다 (크리에이터 사진 일관성 유지 용도).
+        reference_image가 주어지면 prompt와 함께 contents에 포함하고, 참조
+        이미지의 인물을 그대로 유지하라는 지시문을 prompt 끝에 덧붙인다.
+        이미지 파트만 넘기고 지시문이 없으면 모델이 참조 이미지를 "스타일
+        참고" 정도로만 취급해 인물이 매 호출마다 달라지는 문제가 있었다
+        (크리에이터 사진 일관성 유지 용도).
 
         Args:
             prompt: 이미지 생성 지침 프롬프트.
@@ -324,9 +327,16 @@ class VendorClient:
             VendorError: 모든 재시도 소진 후에도 실패한 경우,
                          또는 응답에 이미지 파트가 없는 경우.
         """
+        effective_prompt = prompt
+        if reference_image is not None:
+            effective_prompt = (
+                f"{prompt} Use the exact same person shown in the reference image as "
+                f"the subject — keep their face, features, and identity fully "
+                f"consistent with the reference image. Do not change their appearance."
+            )
 
         def _call() -> bytes:
-            contents: list = [prompt]
+            contents: list = [effective_prompt]
             if reference_image is not None:
                 contents.append(
                     genai_types.Part.from_bytes(data=reference_image, mime_type="image/png")

@@ -231,6 +231,33 @@ def _verify_ratio(image_bytes: bytes) -> bool:
         return True
 
 
+def _measure_video_duration(mp4_path: Path) -> float | None:
+    """mp4 파일의 실제 재생 시간(초)을 측정한다.
+
+    image_to_video() 벤더(Veo/Gemini Omni Flash 등)가 요청한 duration_sec과
+    정확히 일치하는 길이를 돌려주지 않을 수 있다 — 특히 Gemini Omni Flash는
+    프롬프트의 duration 힌트를 참고만 할 뿐 정확히 맞추지 않는다. shotlist에
+    기록되는 duration_sec을 실제 파일 길이와 맞춰야 compose.py의
+    adjust_durations() 계산이 최종 mp4의 진짜 재생 시간과 일치한다.
+
+    Args:
+        mp4_path: 측정할 mp4 파일 경로.
+
+    Returns:
+        측정된 재생 시간(초). 측정 실패 시 None.
+    """
+    try:
+        from moviepy import VideoFileClip  # type: ignore[import]
+
+        clip = VideoFileClip(str(mp4_path))
+        duration = float(clip.duration)
+        clip.close()
+        return duration if duration > 0 else None
+    except Exception as exc:
+        logger.warning("[assets] mp4 duration 측정 실패: %s (%s)", mp4_path, exc)
+        return None
+
+
 def _build_vo_text(profile: dict) -> str:
     """profile의 captions.slots에서 보이스오버 텍스트를 구성한다.
 
@@ -497,11 +524,27 @@ def _render_veo_shot(
         mp4_path.parent.mkdir(parents=True, exist_ok=True)
         mp4_path.write_bytes(video_bytes)
         shot["asset_path"] = str(mp4_path)
-        shot["duration_sec"] = 5.0  # Veo 클립은 항상 5초 고정
+        # 실제 생성된 클립의 진짜 duration을 측정해 기록한다.
+        # Veo는 4/6/8초 중 하나로 고정되지만, Gemini Omni Flash는 프롬프트의
+        # duration 힌트를 참고할 뿐 정확히 맞추지 않는다. 이전에는 5.0으로
+        # 하드코딩했는데, 이 값이 compose.py의 adjust_durations() 계산에
+        # 쓰이는 계획값과 실제 mp4 파일의 진짜 재생 시간이 어긋나 최종 영상
+        # 길이가 목표(예: 음악 길이)보다 길어지는 버그가 있었다.
+        measured_duration = _measure_video_duration(mp4_path)
+        if measured_duration is not None:
+            shot["duration_sec"] = measured_duration
+        else:
+            # 측정 실패 시 계획된 duration을 그대로 유지 (기존 shot["duration_sec"])
+            logger.warning(
+                "[assets] veo shot %s: mp4 duration 측정 실패 — 계획값(%.2fs) 유지.",
+                index,
+                duration_sec,
+            )
         logger.info(
-            "[assets] veo shot %s: mp4 저장 완료 (%d bytes): %s",
+            "[assets] veo shot %s: mp4 저장 완료 (%d bytes, duration=%.2fs): %s",
             index,
             len(video_bytes),
+            shot["duration_sec"],
             mp4_path,
         )
     except VendorError as exc:

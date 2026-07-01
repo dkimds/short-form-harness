@@ -14,9 +14,9 @@ retro.md (작성 중 — 작업하며 채워간다)
 ## TL;DR (3줄)
 <!-- 면접관이 제일 먼저 읽는다. "무엇을 만들었고, 핵심 판단은 뭐였고, 어디까지 됐다"를 3줄로.
      ※ 파이프라인 1편이라도 돌고 나서 마지막에 채우는 게 정확하다. 지금은 비워둠. -->
-- 만든 것:
-- 핵심 판단(한 문장):
-- 도달 지점 / 한계:
+- 만든 것: 레퍼런스 mp4를 분석해 재사용 가능한 style_profile.json으로 분해하고(analyze), 그 프로파일 + 사용자 입력(제품/인물사진/배경텍스트)으로 새 숏폼 mp4를 생성하는(generate) 2단계 CLI 하네스. 훅은 시스템이 매번 다르게 생성, 인물은 참조 사진으로, 배경은 텍스트 override로 통제 가능.
+- 핵심 판단(한 문장): 스타일의 본질은 비주얼이 아니라 pacing·narrative.beats·captions 슬롯 같은 "구조"이고, 분석↔생성을 JSON 하나로 완전히 분리해야 이 구조를 재사용할 수 있다.
+- 도달 지점 / 한계: 분석→합성→Gate까지 파이프라인은 end-to-end로 완주하고 재현성(같은 시스템·다른 입력→다른 결과)도 검증됨. 그런데 실제 3편 생성에서 Gate FAIL을 못 뛰어넘었다 — Veo quota 문제로 image-to-video 모델을 Omni Flash로 교체하고, duration 하드코딩 버그(5.0초 고정 → 실측값 사용)를 코드 레벨에서는 고쳤지만, 그 수정을 반영한 재생성·재판정까지는 시간 안에 완료하지 못했다. beat count(7 기대 vs 5 관측) 불일치도 원인 진단은 됐지만 해결은 다음 과제로 남긴다.
 
 ---
 
@@ -49,6 +49,12 @@ retro.md (작성 중 — 작업하며 채워간다)
   - 자막의 한글 가독성 (PIL 기본 폰트 CJK 미지원, P1 개선 대상)
   - 완전한 동영상: 전체 숏 veo_i2v 설정 완료, 실제 생성은 시간 제약으로 미실행 (6~10분 소요)
   - TTS 보이스오버: google-cloud-texttospeech 미설치로 묵음 WAV 폴백 사용 중
+  - **Gate PASS 자체** (아래 "체크포인트 4" 참고) — duration 버그는 코드는 고쳤지만 재판정까지 못 감
+  - **beat count 불일치** (기대 7 vs 관측 5) — 원인은 짚었지만(정지 이미지 shot들이 비전 판정에서
+    서로 구분 안 됨 추정) 해결책(beats 세분화 또는 shot별 프롬프트 variation)은 미구현
+  - **인물 일관성의 "기본값" 설계** — `--creator-photo` 없이 `--background`만 주면 인물이 매 run마다
+    임의로 바뀌는 문제(백인이 나온 사례)를 실제로 겪었다. `--creator-photo`를 강제하거나 기본
+    인물 묘사 필드를 추가하는 방향까지 논의했지만 구현은 못 함
 
 **체크포인트 2 실제 품질 관찰:**
 - 소리 없음: assets/music/에 무음 WAV placeholder만 있고 TTS(google-cloud-texttospeech) 미설치 → 음악·VO 모두 묵음
@@ -69,6 +75,34 @@ retro.md (작성 중 — 작업하며 채워간다)
 - 가장 깔끔한 해결: Veo 클립은 그 자체 duration을 쓰고, shot["duration_sec"]를 실제 클립 길이로 덮어쓰도록 _render_veo_shot에서 업데이트해야 함. 그리고 VideoFileClip을 제대로 이어붙여야 함
 - 시간 제약으로 우선 P2(문서·Gate)로 넘어가고, 이 문제는 "끝내 못 푼 것"으로 기록
 
+**체크포인트 4 (실전 3편 생성 시도 — 최종 상태) 관찰:**
+- Veo(veo-3.1-*-preview)가 이 프로젝트에서 quota 소진 상태라 실제 429가 계속 발생 → Gemini
+  Omni Flash(gemini-omni-flash-preview)로 image-to-video 모델을 교체(상세: LOG B "Task 최종").
+  이후 429 없이 안정적으로 mp4 생성됨
+- 인물 일관성: `--creator-photo`에 참조 이미지만 넘기고 "이 사람을 유지하라"는 지시문이 없어서
+  모델이 참조 이미지를 스타일 참고 정도로만 취급 → 매 shot마다 다른 사람이 나오는 문제 발견.
+  프롬프트에 명시적 지시문("Use the exact same person... keep face/identity consistent")을
+  추가해 개선 확인
+- 배경만 바꾸는 시나리오(`--background`만 주고 `--creator-photo` 없이 실행)에서 인물이 매번
+  임의로 바뀌는 문제 발생(실제로 백인 인물이 나온 사례). 원인: `_build_prompt_text()`에 인물
+  외형을 지정하는 필드가 전혀 없음 — `--input`이 우연히 인물 묘사 텍스트였을 때만 인물이 고정됐던
+  것. `--creator-photo` 강제 또는 프로파일에 기본 인물 필드 추가 등 해결 방향은 논의했으나 시간
+  부족으로 구현 못 함
+- duration 버그 재발견: `_render_veo_shot()`이 Veo 시절 유산으로 `shot["duration_sec"] = 5.0`을
+  무조건 덮어쓰고 있었음 — Gemini Omni Flash로 교체된 뒤에도 이 하드코딩이 남아 있어, 실제 결과
+  mp4(13.03초)가 목표(음악 길이 ~10.7초)와 어긋나 Gate가 duration/cut_count 둘 다 FAIL
+  (`outputs/20260702_045447_4823d9/gate.json`). `_measure_video_duration()`을 추가해 실제
+  mp4 길이를 moviepy로 측정하고 그 값을 shot에 기록하도록 코드는 수정했지만, 이 수정을 반영한
+  재생성·재판정까지는 시간 안에 완료하지 못함
+- beat count 불일치(기대 7 vs 관측 5)는 이전 체크포인트(2)에서 겪은 문제와 다른 원인으로
+  재발한 것으로 보임 — 이번엔 1 beat = 1 shot이 이미 적용된 상태였는데도 비전 판정이 5개로 봄.
+  정지 이미지(product_hero·result_glow)들이 서로 비슷해 distinct scene으로 구분되지 않았을
+  가능성이 있으나 확정 원인 진단은 못 함
+- 결론: 파이프라인 자체는 끝까지 도는 것을 여러 번 확인했고 각 실패마다 원인을 구조적으로
+  추적할 수 있었지만("어디서 왜 깨지는지 설명 가능"), 시간 안에 Gate PASS까지는 도달하지 못했다.
+  이 하네스의 가치는 "한 번에 완벽한 영상"이 아니라 "실패해도 어디서 왜 깨졌는지 추적 가능한
+  구조"에 있다고 판단해, 여기서 정리하고 제출한다.
+
 ## 3. 모델 실험 & 비교 (Model Bench)
 <!-- [LOG C]에서. "제일 좋았던 것"만 쓰지 말고 왜 나머지는 탈락했는지 한 줄씩.
      트레이드오프를 말할 줄 아는 게 시니어 신호.
@@ -76,18 +110,23 @@ retro.md (작성 중 — 작업하며 채워간다)
 
 | 단계 | 후보 모델 | 일관성 | 속도 | 비용 | 스타일적합 | 채택? | 한 줄 사유 |
 |---|---|---|---|---|---|---|---|
-| 분석/비전 | gemini-2.0-flash | | | | | (디폴트) | mp4 video-native 입력, 분석↔gate 동일 모델 |
-| 훅 생성 | gemini-2.0-flash | | | | | (디폴트) | 분석과 같은 모델로 컨텍스트 일관 |
-| 이미지 | imagen-3.0-generate-002 | | | | | (디폴트) | 측정 예정 |
-| 히어로 클립(i2v) | veo-2.0-generate-001 | | | | | (디폴트) | 측정 예정 |
+| 분석/비전 | gemini-2.5-flash | 안정적 | 보통 | 낮음 | 높음 | ✅ 최종 | mp4 video-native 입력, 분석↔gate 동일 모델로 판정 기준 일관 |
+| 훅 생성 | gemini-2.5-flash | 의도적 비결정적 (temp=0.9) | 빠름 | 낮음 | - | ✅ 최종 | 분석과 같은 모델로 컨텍스트 일관, 매 run마다 다른 훅 필요 |
+| 장면 이미지 | imagen-4.0-generate-001 | - | - | - | - | ❌ 탈락 | v1beta에서 403, 이후 실제 quota 문제로 완전 대체 |
+| 장면 이미지 | gemini-2.5-flash-image (Nano Banana) | 참조 이미지 지시문 추가 후 양호 | 빠름 | Imagen과 별도 quota | 높음 | ✅ 최종 | generate_content 기반, Imagen 지원종료(2026-08-17) 예고에도 영향 없음 |
+| 히어로 클립(i2v) | veo-3.1-fast/lite-generate-preview | - | - | - | - | ❌ 탈락 | 이 프로젝트에서 quota 소진 — 빌링 켜진 상태에서도 429 반복, preview 모델 RPM 제약 확인 |
+| 히어로 클립(i2v) | gemini-omni-flash-preview | 안정적(429 없음) | 보통 | Veo와 분리된 quota | 양호 | ✅ 최종 | Veo와 별개 벤더 내부 모델. interactions.create(task=image_to_video)로 대체 |
 
-- 최종 조합과 이유: <!-- 측정 후 확정 -->
+- 최종 조합과 이유: 분석·훅·Gate 판정은 모두 gemini-2.5-flash로 통일해 "같은 모델이 분석하고 같은 모델이 채점"하는 일관성을 유지했다. 이미지·비디오 생성은 원래 Imagen·Veo로 계획했으나 실제 실행 중 둘 다 quota/가용성 문제에 부딪혀, 같은 벤더(Google) 안에서 quota가 분리된 대체 모델(Nano Banana, Gemini Omni Flash)로 교체했다 — "계획한 모델이 항상 쓸 수 있다고 가정하지 않고, 실패 시 즉시 대체재를 찾아 실행을 이어가는" 실전 대응이 이번 과제에서 가장 크게 드러난 역량이라고 본다.
 
 ## 4. 시간이 더 있었다면 (Next)
 <!-- "품질 개선" 같은 막연한 말 금지. 구체적 다음 액션 + 시스템 사고가 드러나게. -->
-1. **Noto Color Emoji + CJK 폰트 주입**: P0에서 이모지를 제거한 채 자막을 렌더링했다. PIL에 `assets/fonts/NotoColorEmoji.ttf`와 `NotoSansCJK-Regular.ttf`를 로드해 이모지·한글 자막을 정상 렌더링하는 것이 다음 우선순위. 파일 하나 추가로 자막 완성도가 확 달라진다.
-2. **실제 BGM 트랙 확보**: 현재 `assets/music/`에 무음 WAV 3개가 있어 compose_video는 돌지만 최종 영상에 음악이 없다. Pixabay/Freesound 라이선스 안전 트랙 3개를 추가하면 `select_music`의 mood 매칭이 의미를 가진다.
-3. **Veo i2v 활성화 (P1)**: `vendor_client.py`의 `image_to_video` 스텁을 실제 Veo API로 교체 → `assets.py`의 `veo_i2v` 분기 활성화. product_hero 장면에 움직임이 생기면 레퍼런스와의 시각적 차이가 가장 크게 줄어드는 지점이다.
+1. **duration 수정 반영 재생성**: `_measure_video_duration()` 추가로 코드는 고쳤으니, 이걸 반영해 다시 3편을 생성하고 Gate가 duration/cut_count를 통과하는지 확인하는 게 최우선이다. 가장 적은 노력으로 가장 확실히 상태를 개선할 수 있는 항목.
+2. **beat count 불일치 재현·수정**: product_hero·result_glow 같은 정지 이미지 shot들이 비전 판정에서 서로 구분되지 않는 게 원인이라는 가설을 검증하려면, 각 shot의 프롬프트에 variation(카메라 앵글·타이밍 차이)을 넣어 실제로 distinct scene 수가 늘어나는지 A/B로 확인해야 한다.
+3. **인물 일관성의 기본 동작 설계**: `--creator-photo` 없이 `--background`만 줬을 때 인물이 매번 임의로 바뀌는 문제. `--background`를 줄 때 `--creator-photo`를 강제하는 CLI 검증, 또는 프로파일에 중립적인 기본 인물 묘사 필드를 추가하는 두 방향 중 하나를 실제로 구현해야 한다.
+4. **Noto Color Emoji + CJK 폰트 주입**: P0에서 이모지를 제거한 채 자막을 렌더링했다. PIL에 `assets/fonts/NotoColorEmoji.ttf`와 `NotoSansCJK-Regular.ttf`를 로드해 이모지·한글 자막을 정상 렌더링하는 것이 다음 우선순위. 파일 하나 추가로 자막 완성도가 확 달라진다.
+5. **실제 BGM 트랙 확보**: 현재는 레퍼런스에서 추출한 BGM(ref1_bgm.mp3)을 실제로 쓰고 있어 이 항목은 해결됐지만, 라이선스 안전성 검증(저작권 클리어런스)은 별도로 필요하다.
+6. **Veo quota 정상화 또는 완전 대체 확정**: 지금은 Gemini Omni Flash로 우회했지만 이 역시 preview 모델이라 같은 리스크가 있다. 시간이 있다면 Veo GA(Vertex AI 경로) 접근을 별도로 구성하거나, Omni Flash의 실제 안정성을 더 많은 run으로 검증해야 한다.
 
 ## 5. 자기판정 Gate 설계 (가산점 — 진심으로 쓸 것)
 <!-- 실제 구현 못 했어도 설계만 명확하면 점수 나온다. 결정적 체크 / 의미 체크로 나눠라. -->
@@ -95,7 +134,10 @@ retro.md (작성 중 — 작업하며 채워간다)
 - **결정적 체크:** (ffprobe·CV로 자동) 9:16 / 길이 범위 / 컷 수 / 음악 존재 / 자막 슬롯 픽셀 영역 텍스트 유무 → pass/fail
 - **의미 체크:** 생성 final.mp4를 Gemini에 재입력 → style_profile의 genre·mood·beat 일치도 0~1 스코어. 분석과 동일 모델이라 기준 일관.
 - **루프:** 임계값 미달 시 재생성(--retry N), 결과를 gate.json에 기록
-- 한계/오탐 가능성: <!-- 자기 설계의 약점을 스스로 짚으면 신뢰도 상승. 예: 분석·판정이 같은 모델이라 '같은 편향'을 통과시킬 위험 -->
+- 한계/오탐 가능성:
+  - 분석·판정이 같은 모델(gemini-2.5-flash)이라 같은 편향을 통과시킬 위험이 있다 — 예를 들어 이 모델이 특정 스타일 특징을 체계적으로 못 보면 분석 단계도 못 뽑고 Gate도 그 결함을 못 잡는다.
+  - `cut_count` 결정적 체크는 실제 씬 감지가 아니라 `duration / avg_shot_len_sec` 나눗셈 추정값이다 — 실제로 duration 버그가 있을 때 이 추정값도 같이 틀어져서 "가짜 실패"가 겹쳐 나온 걸 직접 확인했다(`outputs/20260702_045447_4823d9/gate.json`: duration 13.03s FAIL + cut_count 15 FAIL이 같은 원인에서 파생). 결정적 체크라도 파생 지표는 원인이 하나여도 여러 항목이 동시에 FAIL로 보일 수 있어, Gate 결과를 볼 때 "실패 항목 개수"보다 "근본 원인이 몇 개인지"를 먼저 따져야 한다는 걸 실전에서 배웠다.
+  - vision_judgment의 "beat count(narrative scenes) 불일치" 판정은 AI 비전의 주관적 씬 구분에 의존한다 — 같은 영상도 재판정 시 다른 값이 나올 수 있어(비결정적 모델) Gate 자체가 재현 가능한 결과를 보장하지 않는다.
 
 ---
 
@@ -106,6 +148,7 @@ retro.md (작성 중 — 작업하며 채워간다)
 - 떡밥 2 (단일 벤더 lock-in): Gemini 단일 벤더 → vendor_client.py 한 곳에 격리해 OpenAI/Runway 교체 가능하게 추상화. → 예상 질문: "lock-in 위험?" → 답 준비됨.
 - 떡밥 3 (음악 단순화): 음악 선택을 mood 단어 교집합 스코어링으로 단순화했다. cosine similarity나 임베딩 기반 매칭이 더 정확하지만, mood 문자열이 `_`로 분리된 영어 키워드 형태여서 단어 교집합으로 충분히 의미 있는 매칭이 가능하다고 판단. → 예상 질문: "더 정교한 매칭은?" → 임베딩 기반 방식과 트레이드오프 설명 가능.
 - 떡밥 4 (image/video 입력 단순화): `--input`이 text/image/video 세 종류를 받지만, 실제로는 셋 다 동일한 파이프라인(Imagen→Veo i2v)을 타고 image/video는 파일 내용을 읽지 않고 파일명(stem)만 프롬프트의 Subject로 치환한다(`plan.py`의 `product_subject` 추출, `hook_gen.py`도 동일). 원래 설계는 이미지 입력 시 Imagen 대신 image-to-image로 그 이미지를 직접 활용하고, 영상 입력 시 프레임 추출 등 별도 처리를 하는 것이었으나, 제출 기한 안에서 우선순위가 아니라고 판단해 세 입력을 "프롬프트 텍스트 소스"로 통일했다. → 예상 질문: "이미지 넣으면 그 이미지가 실제로 쓰이나요?" → 답: 아니요, 현재는 파일명만 텍스트로 활용하는 단순화된 구현이고, image-to-image/영상 프레임 추출은 다음 우선순위로 명확히 알고 있다(트레이드오프 인지 후 시간 제약으로 스코프 축소).
+- 떡밥 5 (벤더 모델 가용성 리스크를 실전에서 흡수): 계획한 두 모델(Imagen, Veo) 모두 실제 실행 중 문제(403, 429 quota 소진)에 부딪혔는데, 둘 다 완전히 새 벤더로 갈아타지 않고 "같은 벤더(Google) 안의 다른 모델"로 대체했다(Imagen→Nano Banana, Veo→Gemini Omni Flash). `vendor_client.py`에 모든 Google API 호출을 격리해뒀던 설계(떡밥 2)가 이 교체를 인터페이스 변경 없이 가능하게 했다. → 예상 질문: "Veo quota 문제를 어떻게 해결했나?" → 문서(rate-limits)에서 "preview 모델은 제한이 더 엄격함"을 확인하고, `client.models.list()`로 실제 접근 가능한 모델을 조회해 대체재(Omni Flash)를 찾은 진단 과정을 설명 가능. GA 모델(veo-2.0)은 Vertex AI 전용이라 이 SDK 경로로 404가 난 것도 함께 설명 가능.
 
 
 <!--

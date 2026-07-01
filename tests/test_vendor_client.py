@@ -471,10 +471,27 @@ class TestVendorClientGenerateImage:
         call_kwargs = client._client.models.generate_content.call_args
         contents = call_kwargs.kwargs["contents"]
         assert len(contents) == 2
-        assert contents[0] == "테스트 프롬프트"
+        assert "테스트 프롬프트" in contents[0]
+
+    def test_reference_image_prompt_includes_consistency_instruction(self):
+        """reference_image가 있으면 프롬프트에 인물 일관성 유지 지시문이 덧붙는다.
+
+        이미지 파트만 넘기고 지시문이 없으면 모델이 참조 이미지를 "스타일
+        참고" 정도로만 취급해 인물이 매 호출마다 달라지는 문제가 있었다.
+        """
+        client = _make_client()
+        client._client.models.generate_content.return_value = _mock_image_response(b"bytes")
+
+        client.generate_image(
+            "테스트 프롬프트", aspect_ratio="9:16", reference_image=b"\xff\xd8\xff"
+        )
+        call_kwargs = client._client.models.generate_content.call_args
+        prompt_text = call_kwargs.kwargs["contents"][0]
+        assert "reference image" in prompt_text.lower()
+        assert "consistent" in prompt_text.lower()
 
     def test_reference_image_omitted_when_none(self):
-        """reference_image가 None이면 contents에는 프롬프트 텍스트만 포함된다."""
+        """reference_image가 None이면 contents에는 프롬프트 텍스트만 포함되고 지시문도 없다."""
         client = _make_client()
         client._client.models.generate_content.return_value = _mock_image_response(b"bytes")
 

@@ -23,6 +23,7 @@ from src.generate.assets import (
     _build_vo_text,
     _strip_emoji,
     _get_fallback_bg_color,
+    _measure_video_duration,
     _FALLBACK_WIDTH,
     _FALLBACK_HEIGHT,
     _TARGET_RATIO,
@@ -517,6 +518,124 @@ class TestGetFallbackBgColor:
         color = _get_fallback_bg_color(profile)
         assert isinstance(color, tuple)
         assert len(color) == 3
+
+
+# ---------------------------------------------------------------------------
+# _measure_video_duration 테스트
+# ---------------------------------------------------------------------------
+
+class TestMeasureVideoDuration:
+    def test_returns_measured_duration_on_success(self, tmp_path):
+        """VideoFileClip이 성공하면 측정된 duration을 반환한다."""
+        from unittest.mock import patch
+
+        mp4_path = tmp_path / "clip.mp4"
+        mp4_path.write_bytes(b"\x00" * 10)  # 내용은 모킹되므로 실제 mp4 아니어도 됨
+
+        mock_clip = MagicMock()
+        mock_clip.duration = 6.7
+        with patch("moviepy.VideoFileClip", return_value=mock_clip):
+            result = _measure_video_duration(mp4_path)
+
+        assert result == pytest.approx(6.7)
+        mock_clip.close.assert_called_once()
+
+    def test_returns_none_on_load_failure(self, tmp_path):
+        """VideoFileClip 로드가 실패하면 None을 반환한다 (예외를 전파하지 않음)."""
+        mp4_path = tmp_path / "broken.mp4"
+        mp4_path.write_bytes(b"not a real mp4")
+
+        # 실제 moviepy로 손상된 파일을 열면 예외가 발생 → None 반환 확인
+        result = _measure_video_duration(mp4_path)
+        assert result is None
+
+    def test_returns_none_for_zero_duration(self, tmp_path):
+        """측정된 duration이 0 이하이면 None을 반환한다."""
+        from unittest.mock import patch
+
+        mp4_path = tmp_path / "clip.mp4"
+        mp4_path.write_bytes(b"\x00" * 10)
+
+        mock_clip = MagicMock()
+        mock_clip.duration = 0.0
+        with patch("moviepy.VideoFileClip", return_value=mock_clip):
+            result = _measure_video_duration(mp4_path)
+
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# render_assets: veo_i2v duration 처리 테스트
+# ---------------------------------------------------------------------------
+
+class TestRenderAssetsVeoDuration:
+    """veo_i2v shot의 duration_sec이 실제 mp4 길이로 갱신되는지 검증한다.
+
+    과거 버전은 shot["duration_sec"]을 항상 5.0으로 하드코딩했는데(Veo가
+    4/6/8초 중 하나로만 클립을 만들던 시절의 유산), Gemini Omni Flash로
+    교체된 지금은 이 값이 실제 생성 결과와 무관해 compose.py의
+    adjust_durations() 계산과 최종 mp4 실제 재생 시간이 어긋나는 버그가
+    있었다 (예: 목표 10초인데 실제 13초 출력).
+    """
+
+    def _make_veo_shotlist(self) -> dict:
+        return {
+            "run_id": "test_run",
+            "shots": [
+                {
+                    "index": 0,
+                    "role": "hook",
+                    "asset_type": "veo_i2v",
+                    "duration_sec": 1.5,
+                    "prompt": "test prompt",
+                    "asset_path": "",
+                }
+            ],
+        }
+
+    def test_duration_updated_to_measured_value(self, tmp_path):
+        """image_to_video 성공 시 shot["duration_sec"]이 실측값으로 갱신된다."""
+        from unittest.mock import patch
+
+        client = _make_client()
+        client.image_to_video.return_value = b"\x00" * 512  # 최소 mp4-like bytes
+        shotlist = self._make_veo_shotlist()
+
+        mock_clip = MagicMock()
+        mock_clip.duration = 4.2
+        with patch("moviepy.VideoFileClip", return_value=mock_clip):
+            render_assets(client, shotlist, _make_profile(), str(tmp_path))
+
+        assert shotlist["shots"][0]["duration_sec"] == pytest.approx(4.2)
+
+    def test_duration_not_hardcoded_to_5(self, tmp_path):
+        """shot["duration_sec"]이 더 이상 무조건 5.0으로 고정되지 않는다."""
+        from unittest.mock import patch
+
+        client = _make_client()
+        client.image_to_video.return_value = b"\x00" * 512
+        shotlist = self._make_veo_shotlist()
+
+        mock_clip = MagicMock()
+        mock_clip.duration = 7.9  # 5.0과 다른 값으로 실측되었다고 가정
+        with patch("moviepy.VideoFileClip", return_value=mock_clip):
+            render_assets(client, shotlist, _make_profile(), str(tmp_path))
+
+        assert shotlist["shots"][0]["duration_sec"] == pytest.approx(7.9)
+
+    def test_falls_back_to_planned_duration_when_measurement_fails(self, tmp_path):
+        """duration 측정이 실패하면 원래 계획된 duration_sec을 유지한다."""
+        from unittest.mock import patch
+
+        client = _make_client()
+        client.image_to_video.return_value = b"\x00" * 512
+        shotlist = self._make_veo_shotlist()
+        planned = shotlist["shots"][0]["duration_sec"]
+
+        with patch("moviepy.VideoFileClip", side_effect=RuntimeError("corrupt file")):
+            render_assets(client, shotlist, _make_profile(), str(tmp_path))
+
+        assert shotlist["shots"][0]["duration_sec"] == pytest.approx(planned)
 
 
 # ---------------------------------------------------------------------------
