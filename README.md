@@ -21,8 +21,8 @@
 cp .env.example .env
 # .env에 GOOGLE_API_KEY 입력
 
-# 의존성 설치
-uv pip install -r requirements.txt
+# 의존성 설치 (pyproject.toml / uv.lock 기준)
+uv sync
 ```
 
 ---
@@ -68,7 +68,8 @@ short-form-harness/
 ├─ tests/                        # 단위·속성·통합 테스트
 ├─ outputs/<run_id>/             # 매 생성 run의 산출물
 ├─ .env.example                  # 키 이름·발급처·용도 (값 비움)
-└─ requirements.txt
+├─ pyproject.toml                # 의존성 정의
+└─ uv.lock                       # 잠금 파일
 ```
 
 `analyze/`와 `generate/`는 서로를 import하지 않는다. 유일한 접점은 `style_profile.json` 파일이다.
