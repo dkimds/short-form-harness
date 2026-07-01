@@ -62,6 +62,40 @@ uv run python cli.py generate --profile profiles/ref1.json --input "glow serum" 
 
 ---
 
+## 제출한 3편 재현 커맨드
+
+과제 요구사항("서로 다른 입력 3개로 생성한 3편", 인물/배경 변경 요소 포함)을 충족하기 위해 실제로 실행한 커맨드다. `--input`은 매번 다른 값을 줘 "다른 입력 → 다른 결과"를 만족시키고, `--creator-photo`/`--background` 조합으로 인물·배경 변경 요소를 각각 분리해 적용했다.
+
+```bash
+# 영상 1 — 인물 변경 (배경은 프로파일 기본값)
+uv run python cli.py generate \
+  --profile profiles/ref1.json \
+  --input "glow serum" \
+  --creator-photo creator.png
+# → outputs/20260702_045447_4823d9/
+
+# 영상 2 — 배경 변경 (인물은 --creator-photo 없이, 시스템 임의 생성)
+uv run python cli.py generate \
+  --profile profiles/ref1.json \
+  --input "glow serum" \
+  --background "minimalist black studio with gold light"
+# → outputs/20260702_050209_b5c367/
+
+# 영상 3 — 인물 + 배경 모두 변경
+uv run python cli.py generate \
+  --profile profiles/ref1.json \
+  --input "glow serum" \
+  --creator-photo creator.png \
+  --background "minimalist black studio with soft light"
+# → outputs/20260702_050738_b82699/
+```
+
+`--duration`은 세 run 모두 지정하지 않았다 — `profile.audio.music_mood`로 선택된 음악(ref1_bgm.mp3, 실측 ~10.7초)의 실제 길이에 자동으로 맞춰진다.
+
+**Gate 결과 (정직하게 기록):** 3편 모두 `gate.json`의 `passed: false`다. 세 번째(인물+배경 변경) run은 `vision_judgment: pass`, `cut_count: pass`까지 도달했고 `duration`만 목표(10.7s) 대비 11.0s로 근소하게 초과해 실패했다. 나머지 두 편은 `duration`(13.03s, Veo 클립 duration 하드코딩 잔여 버그의 영향)과 `cut_count`가 함께 초과했다. 근본 원인과 코드 수정 내역은 `retro.md`의 "체크포인트 4"에 기록했다 — 수정은 코드 레벨에서 완료했으나 이를 반영한 재생성·재판정까지는 제출 시한 안에 마치지 못했다.
+
+---
+
 ## 디렉터리 구조
 
 ```
@@ -69,7 +103,7 @@ short-form-harness/
 ├─ cli.py                        # analyze / generate 서브커맨드 진입점
 ├─ style_profile.schema.json     # 프로파일 스키마 — source of truth
 ├─ profiles/
-│  └─ biodance.json              # 레퍼런스 분석 산출물 (예시)
+│  └─ ref1.json                  # 레퍼런스 분석 산출물 (제출에 사용한 프로파일)
 ├─ refs/                         # 레퍼런스 mp4 (분석 전용, 생성에 직접 사용 안 함)
 ├─ src/
 │  ├─ analyze/                   # probe, cut_detect, audio_stats, vision, synthesize_profile
