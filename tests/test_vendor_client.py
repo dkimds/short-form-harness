@@ -406,48 +406,56 @@ class TestVendorClientJudgeVideo:
 # ---------------------------------------------------------------------------
 # generate_image 테스트
 # ---------------------------------------------------------------------------
+def _mock_image_response(image_bytes: bytes) -> MagicMock:
+    """generate_content가 이미지 파트를 담아 반환하는 응답을 모킹한다."""
+    part = MagicMock()
+    part.inline_data.data = image_bytes
+    response = MagicMock()
+    response.parts = [part]
+    return response
+
+
 class TestVendorClientGenerateImage:
     def test_returns_image_bytes(self):
         client = _make_client()
-
-        mock_image = MagicMock()
-        mock_image.image_bytes = b"\x89PNG\r\n\x1a\n"
-        mock_generated = MagicMock()
-        mock_generated.image = mock_image
-        mock_result = MagicMock()
-        mock_result.generated_images = [mock_generated]
-        client._client.models.generate_images.return_value = mock_result
+        client._client.models.generate_content.return_value = _mock_image_response(
+            b"\x89PNG\r\n\x1a\n"
+        )
 
         result = client.generate_image("뷰티 제품 이미지", aspect_ratio="9:16")
         assert result == b"\x89PNG\r\n\x1a\n"
 
     def test_calls_with_correct_params(self):
         client = _make_client()
-
-        mock_image = MagicMock()
-        mock_image.image_bytes = b"bytes"
-        mock_generated = MagicMock()
-        mock_generated.image = mock_image
-        mock_result = MagicMock()
-        mock_result.generated_images = [mock_generated]
-        client._client.models.generate_images.return_value = mock_result
+        client._client.models.generate_content.return_value = _mock_image_response(b"bytes")
 
         client.generate_image("테스트 프롬프트", aspect_ratio="9:16")
-        client._client.models.generate_images.assert_called_once()
-        call_kwargs = client._client.models.generate_images.call_args
+        client._client.models.generate_content.assert_called_once()
+        call_kwargs = client._client.models.generate_content.call_args
         assert call_kwargs.kwargs["model"] == client._config.imagen_model
-        assert call_kwargs.kwargs["prompt"] == "테스트 프롬프트"
+        assert call_kwargs.kwargs["contents"] == ["테스트 프롬프트"]
 
     def test_raises_vendor_error_on_failure(self):
         client = _make_client()
-        client._client.models.generate_images.side_effect = RuntimeError("quota exceeded")
+        client._client.models.generate_content.side_effect = RuntimeError("quota exceeded")
 
         with patch("src.common.vendor_client.time.sleep"):
             with pytest.raises(VendorError) as exc_info:
                 client.generate_image("프롬프트", aspect_ratio="9:16")
 
         assert exc_info.value.operation == "generate_image"
-        assert exc_info.value.vendor == "Imagen"
+        assert exc_info.value.vendor == "Gemini"
+
+    def test_raises_vendor_error_when_no_image_part(self):
+        """응답에 이미지 파트가 없으면 VendorError를 raise한다."""
+        client = _make_client()
+        empty_response = MagicMock()
+        empty_response.parts = []
+        client._client.models.generate_content.return_value = empty_response
+
+        with patch("src.common.vendor_client.time.sleep"):
+            with pytest.raises(VendorError):
+                client.generate_image("프롬프트", aspect_ratio="9:16")
 
 
 # ---------------------------------------------------------------------------

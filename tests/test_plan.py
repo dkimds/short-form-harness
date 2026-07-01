@@ -1,15 +1,14 @@
 """
 tests/test_plan.py — plan.py 단위 테스트 및 속성 기반 테스트
 
-build_shotlist, write_shotlist, _distribute_cuts, _build_prompt_text 검증.
+build_shotlist, write_shotlist, _build_prompt_text 검증.
 Property 12 (숏리스트 완결성) — Validates: Requirements 9.1, 9.2, 9.3
 
 Feature: short-form-harness
 Property 12: 숏리스트의 완결성
-  For any 프로파일과 시드된 rng에 대해, build_shotlist는 각 beat에 최소 1샷을
-  생성하고(각 숏은 role·duration_sec·asset_type·prompt를 모두 포함), 총 숏 개수는
-  pacing.cut_count_range 범위 내에 있으며, product_hero 장면이 존재하면 P0에서는
-  모든 asset_type이 'imagen_image'다.
+  For any 프로파일과 시드된 rng에 대해, build_shotlist는 각 beat에 정확히 1샷을
+  생성하고(각 숏은 role·duration_sec·asset_type·prompt를 모두 포함), role이
+  hook·application이면 asset_type은 'veo_i2v', 나머지는 'imagen_image'다.
 """
 
 from __future__ import annotations
@@ -206,14 +205,18 @@ class TestBuildShotlist:
         for shot in shotlist["shots"]:
             assert shot["asset_path"] == ""
 
-    def test_all_shots_veo_i2v(self):
-        """모든 숏의 asset_type은 'veo_i2v'다 (전체 동영상화)."""
+    def test_asset_type_by_role(self):
+        """hook·application은 'veo_i2v', 나머지 role은 'imagen_image'다.
+
+        Veo 호출을 role 기준으로 제한해 quota 소진 시 영향 범위를 줄인다.
+        """
         profile = _make_profile()
         shotlist = build_shotlist(
             _make_brief(), profile, "훅", rng=_seeded_rng()
         )
         for shot in shotlist["shots"]:
-            assert shot["asset_type"] == "veo_i2v", (
+            expected = "veo_i2v" if shot["role"] in ("hook", "application") else "imagen_image"
+            assert shot["asset_type"] == expected, (
                 f"shot[{shot['index']}] role={shot['role']} asset_type={shot['asset_type']}"
             )
 
@@ -442,10 +445,11 @@ def test_property_12_shotlist_completeness(profile, brief, seed):
         missing = required_fields - shot.keys()
         assert not missing, f"숏 {shot.get('index')} 에 누락 필드: {missing}"
 
-    # 5. asset_type: 모든 숏이 veo_i2v (전체 동영상화)
+    # 5. asset_type: hook·application은 veo_i2v, 나머지는 imagen_image
     for shot in shots:
-        assert shot["asset_type"] == "veo_i2v", (
-            f"모든 숏은 veo_i2v여야 함: {shot}"
+        expected = "veo_i2v" if shot["role"] in ("hook", "application") else "imagen_image"
+        assert shot["asset_type"] == expected, (
+            f"asset_type role 매핑 불일치: {shot}"
         )
 
     # 6. duration_sec 양수

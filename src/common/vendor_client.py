@@ -269,10 +269,12 @@ class VendorClient:
         return _retry("judge_video", "Gemini", _call)
 
     def generate_image(self, prompt: str, *, aspect_ratio: str) -> bytes:
-        """Imagen: 프롬프트 → 이미지 바이트.
+        """Nano Banana(Gemini 이미지 생성): 프롬프트 → 이미지 바이트.
 
-        Imagen 모델을 호출해 장면 이미지를 생성하고 PNG/JPEG 바이트를
-        반환한다. (요구사항 10.1)
+        Imagen 전용 API(generate_images)가 아니라 Gemini의 generate_content를
+        이미지 응답 모달리티로 호출한다 (모델: config.imagen_model, 기본값
+        "gemini-2.5-flash-image"). Imagen과는 별도의 quota를 쓰므로 Imagen
+        할당량이 소진된 상태에서도 독립적으로 동작한다. (요구사항 10.1)
 
         Args:
             prompt: 이미지 생성 지침 프롬프트.
@@ -282,23 +284,25 @@ class VendorClient:
             생성된 이미지의 바이트 데이터.
 
         Raises:
-            VendorError: 모든 재시도 소진 후에도 실패한 경우.
+            VendorError: 모든 재시도 소진 후에도 실패한 경우,
+                         또는 응답에 이미지 파트가 없는 경우.
         """
 
         def _call() -> bytes:
-            result = self._client.models.generate_images(
+            response = self._client.models.generate_content(
                 model=self._config.imagen_model,
-                prompt=prompt,
-                config=genai_types.GenerateImagesConfig(
-                    number_of_images=1,
-                    aspect_ratio=aspect_ratio,
+                contents=[prompt],
+                config=genai_types.GenerateContentConfig(
+                    response_modalities=["Image"],
+                    image_config=genai_types.ImageConfig(aspect_ratio=aspect_ratio),
                 ),
             )
-            # 첫 번째 이미지의 바이트를 반환
-            image = result.generated_images[0].image
-            return image.image_bytes
+            for part in response.parts or []:
+                if part.inline_data is not None and part.inline_data.data:
+                    return part.inline_data.data
+            raise RuntimeError("Nano Banana 응답에 이미지 파트가 없습니다")
 
-        return _retry("generate_image", "Imagen", _call)
+        return _retry("generate_image", "Gemini", _call)
 
     def image_to_video(
         self,
